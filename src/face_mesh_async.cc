@@ -88,25 +88,35 @@ absl::Status RunMPPGraph() {
     std::shared_ptr<cv::VideoWriter> video_writer = std::make_shared<cv::VideoWriter>();
     RET_CHECK(!video_writer->isOpened());
 
-    LOG(INFO) << "Initialize observer callback.";
-    auto cb = [video_writer, video_writer_mutex](const mediapipe::Packet &packet) -> absl::Status {
-        const mediapipe::ImageFrame& output_frame = packet.Get<mediapipe::ImageFrame>();
+    {
+        std::weak_ptr<cv::VideoWriter> video_writer_weak = video_writer;
+        std::weak_ptr<std::mutex> video_writer_mutex_weak = video_writer_mutex;
+        auto cb = [video_writer_weak = std::move(video_writer_weak), video_writer_mutex_weak = std::move(video_writer_mutex_weak)](const mediapipe::Packet &packet) -> absl::Status {
+            std::shared_ptr<cv::VideoWriter> video_writer = video_writer_weak.lock();
+            std::shared_ptr<std::mutex> video_writer_mutex = video_writer_mutex_weak.lock();
+            if (!video_writer || !video_writer_mutex) {
+                LOG(ERROR) << "Video writer released before callback.";
+                return absl::OkStatus();
+            }
 
-        // Convert back to opencv for display or saving.
-        cv::Mat output_frame_mat = mediapipe::formats::MatView(&output_frame);
-        assert(output_frame_mat.data != nullptr);
-        cv::cvtColor(output_frame_mat, output_frame_mat, cv::COLOR_RGB2BGR);
+            const mediapipe::ImageFrame& output_frame = packet.Get<mediapipe::ImageFrame>();
 
-        {
-            assert(video_writer->isOpened());
-            std::lock_guard<std::mutex> lock(*video_writer_mutex);
+            // Convert back to opencv for display or saving.
+            cv::Mat output_frame_mat = mediapipe::formats::MatView(&output_frame);
+            assert(output_frame_mat.data != nullptr);
+            cv::cvtColor(output_frame_mat, output_frame_mat, cv::COLOR_RGB2BGR);
 
-            video_writer->write(output_frame_mat);
-        }
+            {
+                assert(video_writer->isOpened());
+                std::lock_guard<std::mutex> lock(*video_writer_mutex);
 
-        return absl::OkStatus();
-    };
-    MP_RETURN_IF_ERROR(graph.ObserveOutputStream("out", cb));
+                video_writer->write(output_frame_mat);
+            }
+
+            return absl::OkStatus();
+        };
+        MP_RETURN_IF_ERROR(graph.ObserveOutputStream("out", cb));
+    }
 
     LOG(INFO) << "Making video stream from: " << video_path;
     cv::VideoCapture capture;
