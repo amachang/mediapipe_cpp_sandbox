@@ -138,23 +138,22 @@ absl::Status RunMPPGraph() {
             LOG(INFO) << "Empty frame, end of video reached.";
             break;
         }
-        cv::Mat input_frame_rgb_mat;
-        cv::cvtColor(input_frame_bgr_mat, input_frame_rgb_mat, cv::COLOR_BGR2RGB);
 
         // double check lock pattern
         if (!video_writer_opened) {
             std::lock_guard<std::mutex> lock(*video_writer_mutex);
             if (!video_writer_opened) {
-                video_writer->open(output_path, mediapipe::fourcc('a', 'v', 'c', '1'), 30, cv::Size(input_frame_rgb_mat.cols, input_frame_rgb_mat.rows));
+                video_writer->open(output_path, mediapipe::fourcc('a', 'v', 'c', '1'), 30, cv::Size(input_frame_bgr_mat.cols, input_frame_bgr_mat.rows));
                 assert(video_writer->isOpened());
                 video_writer_opened = true;
             }
         }
 
         // Wrap Mat into an ImageFrame.
-        auto input_frame = absl::make_unique<mediapipe::ImageFrame>(mediapipe::ImageFormat::SRGB, input_frame_rgb_mat.cols, input_frame_rgb_mat.rows, mediapipe::ImageFrame::kDefaultAlignmentBoundary);
+        auto input_frame = absl::make_unique<mediapipe::ImageFrame>(mediapipe::ImageFormat::SRGB, input_frame_bgr_mat.cols, input_frame_bgr_mat.rows, mediapipe::ImageFrame::kDefaultAlignmentBoundary);
         cv::Mat input_frame_mat = mediapipe::formats::MatView(input_frame.get());
-        input_frame_rgb_mat.copyTo(input_frame_mat);
+        // Convert to RGB, and copy into input frame.
+        cv::cvtColor(input_frame_bgr_mat, input_frame_mat, cv::COLOR_BGR2RGB);
 
         // Send image packet into the graph.
         size_t frame_timestamp_us = (double)cv::getTickCount() / (double)cv::getTickFrequency() * 1e6;
