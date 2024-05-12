@@ -23,6 +23,7 @@ absl::Status PrintHelloWorld() {
 
     mediapipe::CalculatorGraph graph;
     MP_RETURN_IF_ERROR(graph.Initialize(config));
+
     MP_ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller poller, graph.AddOutputStreamPoller("out"));
     MP_RETURN_IF_ERROR(graph.StartRun({}));
     // Give 10 input packets that contains the same string "Hello World!".
