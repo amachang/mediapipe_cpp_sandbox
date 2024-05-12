@@ -1,0 +1,16 @@
+# my local clangd settings, I'm not familiar with that.
+CompileFlags:
+  Add:
+    - -std=c++17
+    - -DGLOG_USE_GLOG_EXPORT
+    - -Iexternal/mediapipe
+    - -Iexternal/com_github_glog_glog/src
+    - -Iexternal/com_google_absl
+    - -Iexternal/com_google_protobuf/src
+    - -DGLOG_EXPORT=
+    - -DGLOG_NO_EXPORT=
+    - -DGLOG_DEPRECATED=__attribute__((deprecated))
+    - -DMEDIAPIPE_HAS_CXA_DEMANGLE=0
+    - -Ibazel-out/darwin-fastbuild/bin/external/mediapipe
+    - -Ibazel-out/darwin-fastbuild/bin/external/com_github_glog_glog/_virtual_includes/glog
+    - -Ibazel-out/darwin-fastbuild/bin/external/com_github_gflags_gflags/_virtual_includes/gflags
