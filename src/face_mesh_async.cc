@@ -92,7 +92,6 @@ absl::Status RunMPPGraph() {
     auto cb = [video_writer, video_writer_mutex](const mediapipe::Packet &packet) -> absl::Status {
         const mediapipe::ImageFrame& output_frame = packet.Get<mediapipe::ImageFrame>();
 
-
         // Convert back to opencv for display or saving.
         cv::Mat output_frame_mat = mediapipe::formats::MatView(&output_frame);
         assert(output_frame_mat.data != nullptr);
@@ -118,6 +117,8 @@ absl::Status RunMPPGraph() {
     MP_ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller poller, graph.AddOutputStreamPoller("out"));
     MP_RETURN_IF_ERROR(graph.StartRun({}));
 
+    bool video_writer_opened = false;
+
     LOG(INFO) << "Start grabbing and processing frames.";
     while (true) {
         // Capture opencv camera or video frame.
@@ -130,10 +131,13 @@ absl::Status RunMPPGraph() {
         cv::Mat input_frame_rgb_mat;
         cv::cvtColor(input_frame_bgr_mat, input_frame_rgb_mat, cv::COLOR_BGR2RGB);
 
-        {
+        // double check lock pattern
+        if (!video_writer_opened) {
             std::lock_guard<std::mutex> lock(*video_writer_mutex);
-            if (!video_writer->isOpened()) {
+            if (!video_writer_opened) {
                 video_writer->open(output_path, mediapipe::fourcc('a', 'v', 'c', '1'), 30, cv::Size(input_frame_rgb_mat.cols, input_frame_rgb_mat.rows));
+                assert(video_writer->isOpened());
+                video_writer_opened = true;
             }
         }
 
