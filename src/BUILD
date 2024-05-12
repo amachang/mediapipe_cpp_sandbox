@@ -12,7 +12,6 @@ cc_binary(
 cc_binary(
     name = "face_mesh",
     srcs = ["face_mesh.cc"],
-    data = ["@mediapipe//mediapipe/modules/face_landmark:face_landmark_with_attention.tflite"],
     deps = [
         "@mediapipe//mediapipe/graphs/face_mesh:desktop_calculators",
         "@mediapipe//mediapipe/framework:calculator_framework",
