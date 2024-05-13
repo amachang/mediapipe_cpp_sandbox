@@ -58,10 +58,16 @@ absl::Status RunMPPGraph() {
                 }
             }
         }
-        
+
+        node {
+            calculator: "ColorConvertCalculator"
+            input_stream: "BGR_IN:in"
+            output_stream: "RGB_OUT:rgb_in"
+        }
+
         node {
             calculator: "FaceLandmarkFrontCpu"
-            input_stream: "IMAGE:in"
+            input_stream: "IMAGE:rgb_in"
             input_side_packet: "NUM_FACES:num_faces"
             input_side_packet: "WITH_ATTENTION:with_attention"
             output_stream: "LANDMARKS:multi_face_landmarks"
@@ -72,7 +78,7 @@ absl::Status RunMPPGraph() {
         
         node {
             calculator: "FaceRendererCpu"
-            input_stream: "IMAGE:in"
+            input_stream: "IMAGE:rgb_in"
             input_stream: "LANDMARKS:multi_face_landmarks"
             input_stream: "NORM_RECTS:face_rects_from_landmarks"
             input_stream: "DETECTIONS:face_detections"
@@ -103,9 +109,8 @@ absl::Status RunMPPGraph() {
 
             // Convert back to opencv for display or saving.
             cv::Mat output_frame_mat = mediapipe::formats::MatView(&output_frame);
-            assert(output_frame_mat.data != nullptr);
             cv::cvtColor(output_frame_mat, output_frame_mat, cv::COLOR_RGB2BGR);
-
+            assert(output_frame_mat.data != nullptr);
             {
                 assert(video_writer->isOpened());
                 std::lock_guard<std::mutex> lock(*video_writer_mutex);
@@ -122,47 +127,53 @@ absl::Status RunMPPGraph() {
     cv::VideoCapture capture;
     capture.open(std::move(video_path));
     RET_CHECK(capture.isOpened());
+    
+    double fps = capture.get(cv::CAP_PROP_FPS);
+    int width = static_cast<int>(capture.get(cv::CAP_PROP_FRAME_WIDTH));
+    int height = static_cast<int>(capture.get(cv::CAP_PROP_FRAME_HEIGHT));
+    std::cout << "fps: " << fps << std::endl;
+    std::cout << "width: " << width << ", height: " << height << std::endl;
+    if (fps > 300.0) {
+        // sometimes fps is broken too high, set it to 30.0
+        fps = 30.0;
+    }
+    RET_CHECK(width > 0 && width < 10000);
+    RET_CHECK(height > 0 && height < 10000);
+
+    {
+        std::lock_guard<std::mutex> lock(*video_writer_mutex);
+        assert(!video_writer->isOpened());
+        RET_CHECK(video_writer->open(output_path, mediapipe::fourcc('a', 'v', 'c', '1'), 30, cv::Size(width, height)));
+        RET_CHECK(video_writer->isOpened());
+    }
+
 
     LOG(INFO) << "Start running the MediaPipe graph.";
     MP_ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller poller, graph.AddOutputStreamPoller("out"));
     MP_RETURN_IF_ERROR(graph.StartRun({}));
 
-    bool video_writer_opened = false;
-
     LOG(INFO) << "Start grabbing and processing frames.";
+    int frame_count = 0;
     while (true) {
-        // Capture opencv camera or video frame.
-        cv::Mat input_frame_bgr_mat;
-        capture >> input_frame_bgr_mat;
-        if (input_frame_bgr_mat.empty()) {
+
+        std::unique_ptr<mediapipe::ImageFrame> input_frame = absl::make_unique<mediapipe::ImageFrame>(mediapipe::ImageFormat::SRGB, width, height, mediapipe::ImageFrame::kDefaultAlignmentBoundary);
+
+        cv::Mat input_frame_mat = mediapipe::formats::MatView(input_frame.get());
+        capture >> input_frame_mat;
+        if (input_frame_mat.empty()) {
             LOG(INFO) << "Empty frame, end of video reached.";
             break;
         }
 
-        // double check lock pattern
-        if (!video_writer_opened) {
-            std::lock_guard<std::mutex> lock(*video_writer_mutex);
-            if (!video_writer_opened) {
-                video_writer->open(output_path, mediapipe::fourcc('a', 'v', 'c', '1'), 30, cv::Size(input_frame_bgr_mat.cols, input_frame_bgr_mat.rows));
-                assert(video_writer->isOpened());
-                video_writer_opened = true;
-            }
-        }
-
-        // Wrap Mat into an ImageFrame.
-        auto input_frame = absl::make_unique<mediapipe::ImageFrame>(mediapipe::ImageFormat::SRGB, input_frame_bgr_mat.cols, input_frame_bgr_mat.rows, mediapipe::ImageFrame::kDefaultAlignmentBoundary);
-        cv::Mat input_frame_mat = mediapipe::formats::MatView(input_frame.get());
-        // Convert to RGB, and copy into input frame.
-        cv::cvtColor(input_frame_bgr_mat, input_frame_mat, cv::COLOR_BGR2RGB);
-
-        // Send image packet into the graph.
-        size_t frame_timestamp_us = (double)cv::getTickCount() / (double)cv::getTickFrequency() * 1e6;
-        MP_RETURN_IF_ERROR(graph.AddPacketToInputStream("in", mediapipe::Adopt(input_frame.release()).At(mediapipe::Timestamp(frame_timestamp_us))));
+        size_t frame_timestamp_us = static_cast<size_t>(frame_count * 1e6 / fps);
+        mediapipe::Packet packet = mediapipe::Adopt(input_frame.release()).At(mediapipe::Timestamp(frame_timestamp_us));
+        MP_RETURN_IF_ERROR(graph.AddPacketToInputStream("in", packet));
 
         if (gSignalStatus) {
             LOG(INFO) << "Interrupt signal received.";
             break;
         }
+        frame_count++;
     }
 
     MP_RETURN_IF_ERROR(graph.CloseInputStream("in"));
@@ -170,9 +181,8 @@ absl::Status RunMPPGraph() {
 
     {
         std::lock_guard<std::mutex> lock(*video_writer_mutex);
-        if (video_writer->isOpened()) {
-            video_writer->release();
-        }
+        assert(video_writer->isOpened());
+        video_writer->release();
     }
 
     return absl::OkStatus();

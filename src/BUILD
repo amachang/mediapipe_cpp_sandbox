@@ -35,6 +35,7 @@ cc_binary(
     srcs = ["face_mesh_async.cc"],
     deps = [
         "@mediapipe//mediapipe/graphs/face_mesh:desktop_calculators",
+        "@mediapipe//mediapipe/calculators/image:color_convert_calculator",
         "@mediapipe//mediapipe/framework:calculator_framework",
         "@mediapipe//mediapipe/framework/formats:image_frame",
         "@mediapipe//mediapipe/framework/formats:image_frame_opencv",
