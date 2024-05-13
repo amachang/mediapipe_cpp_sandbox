@@ -1,4 +1,4 @@
 #!/bin/zsh
 
-bazel build --define MEDIAPIPE_DISABLE_GPU=1 $1
+bazel build --config debug --define MEDIAPIPE_DISABLE_GPU=1 $1
 

@@ -1,5 +1,9 @@
 # The bazelrc file for MediaPipe OSS.
 
+# Enable debug in macos (my pc)
+build:debug -c dbg
+build:debug --features=oso_prefix_is_pwd
+
 # Tensorflow needs remote repo
 common --experimental_repo_remote_exec
 
