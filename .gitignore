@@ -1,3 +1,5 @@
+compile_commands.json
+*-e
 *.mp4
 *.avi
 .clangd

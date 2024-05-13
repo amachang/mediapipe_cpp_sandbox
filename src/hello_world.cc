@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "mediapipe/framework/calculator_graph.h"
+#include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
 #include "absl/status/status.h"
 
