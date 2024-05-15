@@ -7,6 +7,7 @@ refresh_compile_commands(
       "//src:hello_world": "",
       "//src:face_mesh": "",
       "//src:face_mesh_async": "",
+      "//src:crop_human": "",
     },
 )
 

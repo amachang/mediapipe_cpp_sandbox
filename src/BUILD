@@ -52,3 +52,25 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "crop_human",
+    srcs = ["crop_human.cc"],
+    deps = [
+        "@mediapipe//mediapipe/framework:calculator_framework",
+        "@mediapipe//mediapipe/framework/port:parse_text_proto",
+
+        "@mediapipe//mediapipe/modules/pose_detection:pose_detection_cpu",
+
+        "@mediapipe//mediapipe/calculators/core:packet_resampler_calculator",
+        "@mediapipe//mediapipe/calculators/util:detections_to_render_data_calculator",
+        "@mediapipe//mediapipe/calculators/util:annotation_overlay_calculator",
+        "@mediapipe//mediapipe/calculators/video:opencv_video_decoder_calculator",
+        "@mediapipe//mediapipe/calculators/video:opencv_video_encoder_calculator",
+        "@mediapipe//mediapipe/calculators/video:video_pre_stream_calculator",
+
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:parse",
+        "@com_google_absl//absl/log:absl_log",
+    ],
+)
+
