@@ -62,8 +62,19 @@ cc_binary(
         "@mediapipe//mediapipe/modules/pose_detection:pose_detection_cpu",
 
         "@mediapipe//mediapipe/calculators/core:packet_resampler_calculator",
+        "@mediapipe//mediapipe/calculators/core:split_vector_calculator",
+
+        "@mediapipe//mediapipe/calculators/util:detections_to_rects_calculator",
         "@mediapipe//mediapipe/calculators/util:detections_to_render_data_calculator",
+        "@mediapipe//mediapipe/calculators/util:detection_to_landmarks_calculator",
+        "@mediapipe//mediapipe/calculators/util:landmarks_to_detection_calculator",
+        "@mediapipe//mediapipe/calculators/util:landmarks_smoothing_calculator",
+        "@mediapipe//mediapipe/calculators/util:rect_to_render_data_calculator",
         "@mediapipe//mediapipe/calculators/util:annotation_overlay_calculator",
+        "@mediapipe//mediapipe/calculators/util:alignment_points_to_rects_calculator",
+
+        "@mediapipe//mediapipe/calculators/image:image_properties_calculator",
+
         "@mediapipe//mediapipe/calculators/video:opencv_video_decoder_calculator",
         "@mediapipe//mediapipe/calculators/video:opencv_video_encoder_calculator",
         "@mediapipe//mediapipe/calculators/video:video_pre_stream_calculator",
