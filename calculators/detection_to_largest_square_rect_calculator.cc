@@ -1,33 +1,37 @@
+#include <iostream>
+
 #include "calculators/detection_to_largest_square_rect_calculator.pb.h"
 
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/detection.pb.h"
 #include "mediapipe/framework/formats/rect.pb.h"
 
-constexpr char kDetectionTag[] = "DETECTION";
+constexpr char kDetectionsTag[] = "DETECTIONS";
 constexpr char kImageSizeTag[] = "IMAGE_SIZE";
 
 class DetectionToLargestSquareRectCalculator: public mediapipe::CalculatorBase {
     private:
         std::optional<double> relative_margin_;
+        std::optional<double> min_score_;
 
         absl::Status LoadOptions(const mediapipe::CalculatorContext& cc) {
             const DetectionToLargestSquareRectCalculatorOptions& options = cc.Options<DetectionToLargestSquareRectCalculatorOptions>();
             relative_margin_ = options.relative_margin();
+            min_score_ = options.min_score();
 
             return absl::OkStatus();
         }
 
     public:
         static mediapipe::Status GetContract(mediapipe::CalculatorContract* cc) {
-            RET_CHECK(cc->Inputs().HasTag(kDetectionTag));
+            RET_CHECK(cc->Inputs().HasTag(kDetectionsTag));
             RET_CHECK(cc->Inputs().HasTag(kImageSizeTag));
 
-            RET_CHECK_EQ(cc->Inputs().NumEntries(kDetectionTag), 1);
+            RET_CHECK_EQ(cc->Inputs().NumEntries(kDetectionsTag), 1);
             RET_CHECK_EQ(cc->Inputs().NumEntries(kImageSizeTag), 1);
             RET_CHECK_EQ(cc->Outputs().NumEntries(), 1);
 
-            cc->Inputs().Tag(kDetectionTag).Set<mediapipe::Detection>();
+            cc->Inputs().Tag(kDetectionsTag).Set<std::vector<mediapipe::Detection>>();
             cc->Inputs().Tag(kImageSizeTag).Set<std::pair<int, int>>();
             cc->Outputs().Index(0).Set<mediapipe::NormalizedRect>();
 
@@ -42,23 +46,46 @@ class DetectionToLargestSquareRectCalculator: public mediapipe::CalculatorBase {
 
         mediapipe::Status Process(mediapipe::CalculatorContext* cc) final {
             assert(relative_margin_.has_value());
+            assert(min_score_.has_value());
 
-            const mediapipe::Packet& detection_packet = cc->Inputs().Tag(kDetectionTag).Value();
+            double relative_margin = relative_margin_.value();
+            double min_score = min_score_.value();
+
+            const mediapipe::Packet& detection_packet = cc->Inputs().Tag(kDetectionsTag).Value();
             if (detection_packet.IsEmpty()) {
                 return mediapipe::OkStatus();
             }
             const mediapipe::Packet& image_size_packet = cc->Inputs().Tag(kImageSizeTag).Value();
             RET_CHECK(!image_size_packet.IsEmpty()) << "Image size packet must be given";
 
-            const mediapipe::Detection& detection = detection_packet.Get<mediapipe::Detection>();
-            const mediapipe::LocationData& location_data = detection.location_data();
+            const std::vector<mediapipe::Detection>& detections = detection_packet.Get<std::vector<mediapipe::Detection>>();
+
+            double highest_score = min_score;
+            std::optional<mediapipe::Detection> highest_score_detection = std::nullopt;
+            for (const mediapipe::Detection& detection: detections) {
+                for (const std::optional<double> score_opt: detection.score()) {
+                    if (score_opt.has_value()) {
+                        double score = score_opt.value();
+                        if (score > highest_score) {
+                            highest_score = score;
+                            highest_score_detection = detection;
+                        }
+                    }
+                }
+            }
+
+            if (!highest_score_detection.has_value()) {
+                return mediapipe::OkStatus();
+            }
+
+            const mediapipe::LocationData& location_data = highest_score_detection.value().location_data();
 
             const std::pair<int, int>& image_size = image_size_packet.Get<std::pair<int, int>>();
             double image_width = static_cast<double>(image_size.first);
             double image_height = static_cast<double>(image_size.second);
 
-            double xmin = 0.0;
-            double ymin = 0.0;
+            double xmin = image_width;
+            double ymin = image_height;
             double xmax = 0.0;
             double ymax = 0.0;
 
@@ -168,7 +195,7 @@ class DetectionToLargestSquareRectCalculator: public mediapipe::CalculatorBase {
             double before_margin_square_side = std::min(xmax - xmin, ymax - ymin);
 
             // apply margin
-            double margin = before_margin_square_side * relative_margin_.value();
+            double margin = before_margin_square_side * relative_margin;
             margin = std::min(margin, xmin);
             margin = std::min(margin, ymin);
             margin = std::min(margin, image_width - xmax);

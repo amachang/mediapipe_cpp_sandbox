@@ -8,5 +8,6 @@ message DetectionToLargestSquareRectCalculatorOptions {
   }
 
   required double relative_margin = 1 [default = 0.25];
+  required double min_score = 2 [default = 0.8];
 }
 

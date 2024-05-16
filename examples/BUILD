@@ -72,6 +72,7 @@ cc_binary(
 
         "@mediapipe//mediapipe/calculators/core:packet_resampler_calculator",
         "@mediapipe//mediapipe/calculators/core:split_vector_calculator",
+        "@mediapipe//mediapipe/calculators/core:packet_thinner_calculator",
 
         "@mediapipe//mediapipe/calculators/util:detections_to_rects_calculator",
         "@mediapipe//mediapipe/calculators/util:detections_to_render_data_calculator",
@@ -85,6 +86,7 @@ cc_binary(
 
         "@mediapipe//mediapipe/calculators/image:image_properties_calculator",
         "@mediapipe//mediapipe/calculators/image:image_cropping_calculator",
+        "@mediapipe//mediapipe/calculators/image:scale_image_calculator",
 
         "@mediapipe//mediapipe/calculators/video:opencv_video_decoder_calculator",
         "@mediapipe//mediapipe/calculators/video:opencv_video_encoder_calculator",

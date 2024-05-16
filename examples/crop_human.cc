@@ -35,21 +35,14 @@ absl::Status RunGraph(std::string&& input_video_path) {
             output_stream: "VIDEO_PRESTREAM:input_video_header"
         }
 
-        # Detect pose
         node {
-            calculator: "PoseDetectionCpu"
-            input_stream: "IMAGE:input_stream"
-            output_stream: "DETECTIONS:pose_detections"
-        }
-        # in my understanding, this detection is originally a single detection
-        node {
-            calculator: "SplitDetectionVectorCalculator"
-            input_stream: "pose_detections"
-            output_stream: "pose_detection"
-            node_options: {
-                [type.googleapis.com/mediapipe.SplitVectorCalculatorOptions] {
-                    ranges: { begin: 0 end: 1 }
-                    element_only: true
+            calculator: "PacketThinnerCalculator"
+            input_stream: "input_stream"
+            output_stream: "downsampled_input_stream"
+            options: {
+                [mediapipe.PacketThinnerCalculatorOptions.ext]: {
+                    thinner_type: ASYNC
+                    period: 100000
                 }
             }
         }
@@ -57,30 +50,52 @@ absl::Status RunGraph(std::string&& input_video_path) {
         # Image size
         node {
             calculator: "ImagePropertiesCalculator"
-            input_stream: "IMAGE_CPU:input_stream"
+            input_stream: "IMAGE_CPU:downsampled_input_stream"
             output_stream: "SIZE:input_image_size"
+        }
+
+        # Detect pose
+        node {
+            calculator: "PoseDetectionCpu"
+            input_stream: "IMAGE:downsampled_input_stream"
+            output_stream: "DETECTIONS:pose_detections"
         }
 
         # Detection to Rect
         node {
             calculator: "DetectionToLargestSquareRectCalculator"
-            input_stream: "DETECTION:pose_detection"
+            input_stream: "DETECTIONS:pose_detections"
             input_stream: "IMAGE_SIZE:input_image_size"
             output_stream: "pose_rect"
             node_options: {
                 [type.googleapis.com/DetectionToLargestSquareRectCalculatorOptions] {
                     relative_margin: 0.2
+                    min_score: 0.8
                 }
             }
         }
 
-
         # Crop image
         node {
             calculator: "ImageCroppingCalculator"
-            input_stream: "IMAGE:input_stream"
+            input_stream: "IMAGE:downsampled_input_stream"
             input_stream: "NORM_RECT:pose_rect"
-            output_stream: "IMAGE:output_stream"
+            output_stream: "IMAGE:cropped_image_stream"
+        }
+
+        # Scale image
+        node {
+            calculator: "ScaleImageCalculator"
+            input_stream: "cropped_image_stream"
+            output_stream: "output_stream"
+            node_options: {
+                [type.googleapis.com/mediapipe.ScaleImageCalculatorOptions] {
+                    target_width: 224
+                    target_height: 224
+                    output_format: SRGB
+                    algorithm: DEFAULT
+                }
+            }
         }
     )pb");
 
