@@ -4,11 +4,11 @@ refresh_compile_commands(
     name = "refresh_compile_commands",
 
     targets = {
-      "//src:hello_world": "",
-      "//src:face_mesh": "",
-      "//src:face_mesh_async": "",
-      "//src:crop_human": "",
-      "//src:use_custom_calculator": "",
+      "//examples:hello_world": "",
+      "//examples:face_mesh": "",
+      "//examples:face_mesh_async": "",
+      "//examples:crop_human": "",
+      "//examples:use_custom_calculator": "",
     },
 )
 
