@@ -7,8 +7,13 @@
 #include "absl/flags/flag.h"
 #include "absl/status/status.h"
 #include "glog/logging.h"
+#include "mediapipe/framework/formats/image_frame.h"
+#include "mediapipe/framework/formats/image_frame_opencv.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
+#include "mediapipe/framework/port/opencv_highgui_inc.h"
+#include "mediapipe/framework/port/opencv_imgproc_inc.h"
+#include "mediapipe/framework/port/opencv_video_inc.h"
 
 ABSL_FLAG(std::string, input_video_path, "", "path of video to load");
 
@@ -20,6 +25,8 @@ void interrupted_signal_handler(int signal) {
 
 absl::Status RunGraph(std::string&& input_video_path) {
     mediapipe::CalculatorGraphConfig config = mediapipe::ParseTextProtoOrDie<mediapipe::CalculatorGraphConfig>(R"pb(
+        output_stream: "output_stream"
+
         # Input video
         node {
             calculator: "OpenCvVideoDecoderCalculator"
@@ -83,67 +90,89 @@ absl::Status RunGraph(std::string&& input_video_path) {
 
         # Calculate rect
         node {
-            calculator: "AlignmentPointsRectsCalculator"
+            calculator: "DetectionsToRectsCalculator"
             input_stream: "DETECTION:smooth_pose_detection"
             input_stream: "IMAGE_SIZE:input_image_size"
-            output_stream: "NORM_RECT:smooth_pose_rect"
+            output_stream: "NORM_RECT:smooth_pose_detection_rect"
             node_options: {
                 [type.googleapis.com/mediapipe.DetectionsToRectsCalculatorOptions] {
-                    rotation_vector_start_keypoint_index: 0
-                    rotation_vector_end_keypoint_index: 1
-                    rotation_vector_target_angle_degrees: 90
+                    conversion_mode: USE_BOUNDING_BOX
+                }
+            }
+        }
+        node {
+            calculator: "RectTransformationCalculator"
+            input_stream: "NORM_RECT:smooth_pose_detection_rect"
+            input_stream: "IMAGE_SIZE:input_image_size"
+            output_stream: "smooth_pose_rect"
+            node_options: {
+                [type.googleapis.com/mediapipe.RectTransformationCalculatorOptions] {
+                    square_long: true
                 }
             }
         }
 
-        # Render pose detections
+        # Crop image
         node {
-            calculator: "RectToRenderDataCalculator"
-            input_stream: "NORM_RECT:smooth_pose_rect"
-            output_stream: "RENDER_DATA:smooth_pose_render_data"
-            node_options: {
-                [type.googleapis.com/mediapipe.RectToRenderDataCalculatorOptions] {
-                    thickness: 1.0
-                    color { r: 255 g: 0 b: 0 }
-                }
-            }
-        }
-        node {
-            calculator: "AnnotationOverlayCalculator"
+            calculator: "ImageCroppingCalculator"
             input_stream: "IMAGE:input_stream"
-            input_stream: "smooth_pose_render_data"
-            output_stream: "IMAGE:annotated_image_stream"
-        }
-
-        # Output video
-        node {
-            calculator: "OpenCvVideoEncoderCalculator"
-            input_side_packet: "OUTPUT_FILE_PATH:output_video_path"
-            input_stream: "VIDEO:annotated_image_stream"
-            input_stream: "VIDEO_PRESTREAM:input_video_header"
-            node_options: {
-                [type.googleapis.com/mediapipe.OpenCvVideoEncoderCalculatorOptions]: {
-                    codec: "avc1"
-                    video_format: "mp4"
-                }
-            }
+            input_stream: "NORM_RECT:smooth_pose_rect"
+            output_stream: "IMAGE:output_stream"
         }
     )pb");
+
+    std::shared_ptr<std::mutex> video_frames_mutex = std::make_shared<std::mutex>();
+    std::shared_ptr<std::deque<cv::Mat>> video_frames = std::make_shared<std::deque<cv::Mat>>();
 
     mediapipe::CalculatorGraph graph;
     MP_RETURN_IF_ERROR(graph.Initialize(config));
 
+    std::weak_ptr<std::mutex> video_frames_mutex_weak = video_frames_mutex;
+    std::weak_ptr<std::deque<cv::Mat>> video_frames_weak = video_frames;
+    MP_RETURN_IF_ERROR(graph.ObserveOutputStream("output_stream", [video_frames_weak = std::move(video_frames_weak), video_frames_mutex_weak = std::move(video_frames_mutex_weak)](const mediapipe::Packet& packet) {
+        std::shared_ptr<std::deque<cv::Mat>> video_frames = video_frames_weak.lock();
+        std::shared_ptr<std::mutex> video_frames_mutex = video_frames_mutex_weak.lock();
+        if (!video_frames || !video_frames_mutex) {
+            LOG(WARNING) << "Video frames buffer is already released";
+            return absl::OkStatus();
+        }
+
+        const mediapipe::ImageFrame& output_frame = packet.Get<mediapipe::ImageFrame>();
+        cv::Mat output_frame_mat = mediapipe::formats::MatView(&output_frame);
+        cv::Mat output_frame_mat_bgr;
+        cv::cvtColor(output_frame_mat, output_frame_mat_bgr, cv::COLOR_RGB2BGR);
+
+        {
+            std::lock_guard<std::mutex> lock(*video_frames_mutex);
+            video_frames->push_back(output_frame_mat_bgr);
+        }
+
+        return absl::OkStatus();
+    }));
+
     LOG(INFO) << "Start running the graph";
     MP_RETURN_IF_ERROR(graph.StartRun({
                 { "input_video_path", mediapipe::MakePacket<std::string>(input_video_path) },
-                { "output_video_path", mediapipe::MakePacket<std::string>("output.mp4") },
                 }));
 
+    cv::namedWindow("Output", /*flags=WINDOW_AUTOSIZE*/ 1);
     while (!g_inturrpted_signal_received) {
         if (graph.HasError()) {
             absl::Status status;
             RET_CHECK(graph.GetCombinedErrors(&status));
             return status;
+        }
+        {
+            std::lock_guard<std::mutex> lock(*video_frames_mutex);
+            if (!video_frames->empty()) {
+                LOG(INFO) << "Displaying frame";
+                cv::imshow("Output", video_frames->front());
+                video_frames->pop_front();
+            }
+        }
+        const int pressed_key = cv::waitKey(1);
+        if (pressed_key >= 0 && pressed_key != 255) {
+            break;
         }
     }
 

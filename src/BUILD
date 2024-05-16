@@ -57,6 +57,13 @@ cc_binary(
     srcs = ["crop_human.cc"],
     deps = [
         "@mediapipe//mediapipe/framework:calculator_framework",
+
+        "@mediapipe//mediapipe/framework/formats:image_frame",
+        "@mediapipe//mediapipe/framework/formats:image_frame_opencv",
+
+        "@mediapipe//mediapipe/framework/port:opencv_highgui",
+        "@mediapipe//mediapipe/framework/port:opencv_imgproc",
+        "@mediapipe//mediapipe/framework/port:opencv_video",
         "@mediapipe//mediapipe/framework/port:parse_text_proto",
 
         "@mediapipe//mediapipe/modules/pose_detection:pose_detection_cpu",
@@ -72,12 +79,15 @@ cc_binary(
         "@mediapipe//mediapipe/calculators/util:rect_to_render_data_calculator",
         "@mediapipe//mediapipe/calculators/util:annotation_overlay_calculator",
         "@mediapipe//mediapipe/calculators/util:alignment_points_to_rects_calculator",
+        "@mediapipe//mediapipe/calculators/util:rect_transformation_calculator",
 
         "@mediapipe//mediapipe/calculators/image:image_properties_calculator",
+        "@mediapipe//mediapipe/calculators/image:image_cropping_calculator",
 
         "@mediapipe//mediapipe/calculators/video:opencv_video_decoder_calculator",
         "@mediapipe//mediapipe/calculators/video:opencv_video_encoder_calculator",
         "@mediapipe//mediapipe/calculators/video:video_pre_stream_calculator",
+
 
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/flags:parse",
