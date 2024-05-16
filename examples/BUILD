@@ -56,6 +56,8 @@ cc_binary(
     name = "crop_human",
     srcs = ["crop_human.cc"],
     deps = [
+        "//calculators:calculators",
+
         "@mediapipe//mediapipe/framework:calculator_framework",
 
         "@mediapipe//mediapipe/framework/formats:image_frame",
@@ -99,6 +101,8 @@ cc_binary(
     name = "use_custom_calculator",
     srcs = ["use_custom_calculator.cc"],
     deps = [
+        "//calculators:calculators",
+
         "@mediapipe//mediapipe/framework:calculator_framework",
         "@mediapipe//mediapipe/framework/port:parse_text_proto",
 

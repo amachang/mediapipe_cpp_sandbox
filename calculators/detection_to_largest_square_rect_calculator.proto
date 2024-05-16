@@ -1,0 +1,12 @@
+syntax = "proto2";
+
+import "mediapipe/framework/calculator.proto";
+
+message DetectionToLargestSquareRectCalculatorOptions {
+  extend mediapipe.CalculatorOptions {
+    optional DetectionToLargestSquareRectCalculatorOptions ext = 352535353;
+  }
+
+  required double relative_margin = 1 [default = 0.25];
+}
+

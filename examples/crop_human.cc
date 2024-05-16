@@ -61,62 +61,25 @@ absl::Status RunGraph(std::string&& input_video_path) {
             output_stream: "SIZE:input_image_size"
         }
 
-        # Smoothing
+        # Detection to Rect
         node {
-            calculator: "DetectionToLandmarksCalculator"
+            calculator: "DetectionToLargestSquareRectCalculator"
             input_stream: "DETECTION:pose_detection"
-            output_stream: "LANDMARKS:pose_landmarks"
-        }
-        node {
-            calculator: "LandmarksSmoothingCalculator"
-            input_stream: "NORM_LANDMARKS:pose_landmarks"
             input_stream: "IMAGE_SIZE:input_image_size"
-            output_stream: "NORM_FILTERED_LANDMARKS:smooth_pose_landmarks"
+            output_stream: "pose_rect"
             node_options: {
-                [type.googleapis.com/mediapipe.LandmarksSmoothingCalculatorOptions] {
-                    velocity_filter: {
-                        window_size: 10
-                        velocity_scale: 0.001
-                        disable_value_scaling: true
-                    }
+                [type.googleapis.com/DetectionToLargestSquareRectCalculatorOptions] {
+                    relative_margin: 0.2
                 }
             }
-        }
-        node {
-            calculator: "LandmarksToDetectionCalculator"
-            input_stream: "NORM_LANDMARKS:smooth_pose_landmarks"
-            output_stream: "DETECTION:smooth_pose_detection"
         }
 
-        # Calculate rect
-        node {
-            calculator: "DetectionsToRectsCalculator"
-            input_stream: "DETECTION:smooth_pose_detection"
-            input_stream: "IMAGE_SIZE:input_image_size"
-            output_stream: "NORM_RECT:smooth_pose_detection_rect"
-            node_options: {
-                [type.googleapis.com/mediapipe.DetectionsToRectsCalculatorOptions] {
-                    conversion_mode: USE_BOUNDING_BOX
-                }
-            }
-        }
-        node {
-            calculator: "RectTransformationCalculator"
-            input_stream: "NORM_RECT:smooth_pose_detection_rect"
-            input_stream: "IMAGE_SIZE:input_image_size"
-            output_stream: "smooth_pose_rect"
-            node_options: {
-                [type.googleapis.com/mediapipe.RectTransformationCalculatorOptions] {
-                    square_long: true
-                }
-            }
-        }
 
         # Crop image
         node {
             calculator: "ImageCroppingCalculator"
             input_stream: "IMAGE:input_stream"
-            input_stream: "NORM_RECT:smooth_pose_rect"
+            input_stream: "NORM_RECT:pose_rect"
             output_stream: "IMAGE:output_stream"
         }
     )pb");

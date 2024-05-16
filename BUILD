@@ -9,6 +9,7 @@ refresh_compile_commands(
       "//examples:face_mesh_async": "",
       "//examples:crop_human": "",
       "//examples:use_custom_calculator": "",
+      "//calculators:calculators": "",
     },
 )
 
