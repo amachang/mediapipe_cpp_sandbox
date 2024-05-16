@@ -8,6 +8,7 @@ refresh_compile_commands(
       "//src:face_mesh": "",
       "//src:face_mesh_async": "",
       "//src:crop_human": "",
+      "//src:use_custom_calculator": "",
     },
 )
 

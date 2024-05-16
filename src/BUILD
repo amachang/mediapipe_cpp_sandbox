@@ -95,3 +95,16 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "use_custom_calculator",
+    srcs = ["use_custom_calculator.cc"],
+    deps = [
+        "@mediapipe//mediapipe/framework:calculator_framework",
+        "@mediapipe//mediapipe/framework/port:parse_text_proto",
+
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:parse",
+        "@com_google_absl//absl/log:absl_log",
+    ],
+)
+
