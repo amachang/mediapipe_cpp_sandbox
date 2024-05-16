@@ -114,3 +114,25 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "image_classification",
+    srcs = ["image_classification.cc"],
+    deps = [
+        "@mediapipe//mediapipe/tasks/cc/vision/image_classifier:image_classifier",
+
+        "@mediapipe//mediapipe/framework/port:opencv_highgui",
+        "@mediapipe//mediapipe/framework/port:opencv_imgproc",
+        "@mediapipe//mediapipe/framework/port:opencv_video",
+        "@mediapipe//mediapipe/framework/port:parse_text_proto",
+
+        "@mediapipe//mediapipe/calculators/core:packet_thinner_calculator",
+
+        "@mediapipe//mediapipe/calculators/util:to_image_calculator",
+
+        "@mediapipe//mediapipe/calculators/video:opencv_video_decoder_calculator",
+
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:parse",
+        "@com_google_absl//absl/log:absl_log",
+    ],
+)
