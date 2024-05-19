@@ -3,6 +3,9 @@
 #include <iostream>
 #include <string>
 #include <filesystem>
+#include <thread>
+#include <mutex>
+#include <utility>
 
 #include "absl/flags/parse.h"
 #include "absl/flags/flag.h"
@@ -92,51 +95,134 @@ absl::Status RunGraph(const std::filesystem::path& input_video_path, const std::
         }
     )pb");
 
-    std::shared_ptr<std::mutex> fs_mutex = std::make_shared<std::mutex>();
 
     mediapipe::CalculatorGraph graph;
     MP_RETURN_IF_ERROR(graph.Initialize(config));
 
-    MP_RETURN_IF_ERROR(graph.ObserveOutputStream("output_stream", [dataset_dir = std::move(dataset_dir), fs_mutex, inpunt_video_filename = std::move(input_video_filename)](const mediapipe::Packet& packet) {
-        std::pair<std::string, std::shared_ptr<const mediapipe::ImageFrame>> label_and_frame = packet.Get<std::pair<std::string, std::shared_ptr<const mediapipe::ImageFrame>>>();
-        const std::string& label = label_and_frame.first;
-        const std::shared_ptr<const mediapipe::ImageFrame> output_frame = label_and_frame.second;
-        mediapipe::Timestamp timestamp = packet.Timestamp();
-        cv::Mat output_frame_mat = mediapipe::formats::MatView(output_frame.get());
-        cv::Mat output_frame_mat_bgr;
-        cv::cvtColor(output_frame_mat, output_frame_mat_bgr, cv::COLOR_RGB2BGR);
+    std::shared_ptr<std::mutex> status_mutex = std::make_shared<std::mutex>();
+    std::shared_ptr<absl::Status> error_status = std::make_shared<absl::Status>(absl::OkStatus());
 
-        {
-            std::lock_guard<std::mutex> lock(*fs_mutex);
+    std::shared_ptr<std::mutex> mkdir_mutex = std::make_shared<std::mutex>();
+    std::shared_ptr<std::chrono::steady_clock::time_point> last_packet_received_time = std::make_shared<std::chrono::steady_clock::time_point>(std::chrono::steady_clock::now());
 
-            // make dir if not exists
+    {
+        std::weak_ptr<std::mutex> status_mutex_weak = status_mutex;
+        std::weak_ptr<std::mutex> mkdir_mutex_weak = mkdir_mutex;
+        std::weak_ptr<absl::Status> error_status_weak = error_status;
+        std::weak_ptr<std::chrono::steady_clock::time_point> last_packet_received_time_weak = last_packet_received_time;
+
+        MP_RETURN_IF_ERROR(graph.ObserveOutputStream("output_stream", [
+                    status_mutex_weak = std::move(status_mutex_weak),
+                    mkdir_mutex_weak = std::move(mkdir_mutex_weak),
+                    error_status_weak = std::move(error_status_weak),
+                    last_packet_received_time_weak = std::move(last_packet_received_time_weak),
+                    dataset_dir = std::move(dataset_dir),
+                    inpunt_video_filename = std::move(input_video_filename)](const mediapipe::Packet& packet) {
+            std::shared_ptr<std::mutex> status_mutex = status_mutex_weak.lock();
+            std::shared_ptr<std::mutex> mkdir_mutex = mkdir_mutex_weak.lock();
+            std::shared_ptr<absl::Status> error_status = error_status_weak.lock();
+            std::shared_ptr<std::chrono::steady_clock::time_point> last_packet_received_time = last_packet_received_time_weak.lock();
+            if (!status_mutex || !error_status || !mkdir_mutex || !last_packet_received_time) {
+                LOG(ERROR) << "Callback called after the object was destroyed";
+                return absl::OkStatus();
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(*status_mutex);
+                *last_packet_received_time = std::chrono::steady_clock::now();
+            }
+
+            std::pair<std::string, std::shared_ptr<const mediapipe::ImageFrame>> label_and_frame = packet.Get<std::pair<std::string, std::shared_ptr<const mediapipe::ImageFrame>>>();
+            const std::string& label = label_and_frame.first;
+            const std::shared_ptr<const mediapipe::ImageFrame> output_frame = label_and_frame.second;
+            mediapipe::Timestamp timestamp = packet.Timestamp();
+
+            cv::Mat output_frame_mat_bgr;
+            try {
+                cv::Mat output_frame_mat = mediapipe::formats::MatView(output_frame.get());
+                cv::cvtColor(output_frame_mat, output_frame_mat_bgr, cv::COLOR_RGB2BGR);
+            } catch (const cv::Exception& e) {
+                LOG(ERROR) << "Failed to convert ImageFrame to cv::Mat: " << e.what();
+                error_status->Update(absl::InternalError("Failed to convert ImageFrame to cv::Mat"));
+                return absl::OkStatus();
+            }
+
             std::filesystem::path label_dir = dataset_dir / label;
+
+            // double check for performance
             if (!std::filesystem::exists(label_dir)) {
-                std::filesystem::create_directories(label_dir);
+                std::lock_guard<std::mutex> lock(*mkdir_mutex);
+                // make dir if not exists
+                if (!std::filesystem::exists(label_dir)) {
+                    std::filesystem::create_directories(label_dir);
+                }
             }
 
             std::filesystem::path output_image_path = label_dir / (inpunt_video_filename + "_" + std::to_string(timestamp.Value()) + ".png");
-            cv::imwrite(output_image_path.string(), output_frame_mat_bgr);
-        }
 
-        return absl::OkStatus();
-    }));
+            try {
+                cv::imwrite(output_image_path.string(), output_frame_mat_bgr);
+            } catch (const cv::Exception& e) {
+                LOG(ERROR) << "Failed to write image to file: " << e.what();
+                error_status->Update(absl::InternalError("Failed to write image to file"));
+                return absl::OkStatus();
+            }
+            std::cout << "Label: " << label << std::endl;
+
+            return absl::OkStatus();
+        }));
+    }
+
+    {
+        std::weak_ptr<std::mutex> status_mutex_weak = status_mutex;
+        std::weak_ptr<absl::Status> error_status_weak = error_status;
+
+        graph.SetErrorCallback([status_mutex_weak = std::move(status_mutex_weak), error_status_weak = std::move(error_status_weak)](absl::Status status) {
+            LOG(ERROR) << "Error: " << status.message();
+
+            std::shared_ptr<std::mutex> status_mutex = status_mutex_weak.lock();
+            std::shared_ptr<absl::Status> error_status = error_status_weak.lock();
+            if (!status_mutex || !error_status) {
+                LOG(ERROR) << "Error callback called after the object was destroyed";
+            }
+            {
+                std::lock_guard<std::mutex> lock(*status_mutex);
+                error_status->Update(status);
+            }
+        });
+    }
 
     MP_RETURN_IF_ERROR(graph.StartRun({
                 { "input_video_path", mediapipe::MakePacket<std::string>(input_video_path) }
                 }));
 
-    cv::namedWindow("Output", /*flags=WINDOW_AUTOSIZE*/ 1);
     while (!g_inturrpted_signal_received) {
-        if (graph.HasError()) {
-            absl::Status status;
-            RET_CHECK(graph.GetCombinedErrors(&status));
-            return status;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        {
+            std::lock_guard<std::mutex> lock(*status_mutex);
+            if (!error_status->ok()) {
+                break;
+            }
+
+            std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+            std::chrono::duration<double> elapsed_seconds = now - *last_packet_received_time;
+            if (elapsed_seconds.count() > 10) {
+                LOG(ERROR) << "No packet received for 10 seconds. Exiting...";
+                break;
+            }
         }
     }
 
-    MP_RETURN_IF_ERROR(graph.CloseAllPacketSources());
-    MP_RETURN_IF_ERROR(graph.WaitUntilDone());
+    absl::Status close_status = graph.CloseAllPacketSources();
+    absl::Status wait_until_done_status = graph.WaitUntilDone();
+
+    {
+        std::lock_guard<std::mutex> lock(*status_mutex);
+        MP_RETURN_IF_ERROR(*error_status);
+    }
+    MP_RETURN_IF_ERROR(close_status);
+    MP_RETURN_IF_ERROR(wait_until_done_status);
 
     return absl::OkStatus();
 }
