@@ -118,6 +118,8 @@ cc_binary(
     name = "image_classification",
     srcs = ["image_classification.cc"],
     deps = [
+        "//calculators:calculators",
+
         "@mediapipe//mediapipe/tasks/cc/vision/image_classifier:image_classifier",
 
         "@mediapipe//mediapipe/framework/port:opencv_highgui",

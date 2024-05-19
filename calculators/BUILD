@@ -6,6 +6,7 @@ cc_library(
     name = "calculators",
     deps = [
         ":detection_to_largest_square_rect_calculator",
+        ":classification_image_gate_calculator",
     ],
 )
 
@@ -29,3 +30,14 @@ mediapipe_proto_library(
     ],
 )
 
+cc_library(
+    name = "classification_image_gate_calculator",
+    srcs = ["classification_image_gate_calculator.cc"],
+    deps = [
+        "@mediapipe//mediapipe/framework:calculator_framework",
+        "@mediapipe//mediapipe/framework/formats:image",
+        "@mediapipe//mediapipe/framework/formats:image_frame",
+        "@mediapipe//mediapipe/tasks/cc/components/containers:classification_result",
+    ],
+    alwayslink = 1,
+)
