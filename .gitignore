@@ -1,4 +1,7 @@
-train_workspace/*/*.png
+*.tflite
+*.png
+train_workspace*/*
+tried_video_list.txt
 compile_commands.json
 *-e
 *.mp4

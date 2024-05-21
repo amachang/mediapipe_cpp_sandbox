@@ -6,6 +6,8 @@
 #include <thread>
 #include <mutex>
 #include <utility>
+#include <unordered_set>
+#include <fstream>
 
 #include "absl/flags/parse.h"
 #include "absl/flags/flag.h"
@@ -22,7 +24,8 @@
 #include "mediapipe/tasks/cc/components/containers/classification_result.h"
 
 ABSL_FLAG(std::string, video_dir, "", "video dir");
-ABSL_FLAG(std::string, dataset_dir, "train_workspace", "dataset dir");
+ABSL_FLAG(std::string, dataset_dir, "", "dataset dir");
+ABSL_FLAG(std::string, model_path, "", "model path");
 
 std::sig_atomic_t g_inturrpted_signal_received = false;
 void interrupted_signal_handler(int signal) {
@@ -34,8 +37,18 @@ std::unordered_set<std::string> g_video_extensions = {
     ".mp4", ".avi", ".mov", ".mkv"
 };
 
-absl::Status RunGraph(const std::filesystem::path& input_video_path, const std::filesystem::path& dataset_dir) {
+std::filesystem::path tried_video_list_txt_path = "tried_video_list.txt";
+
+absl::Status RunGraph(const std::filesystem::path& model_path, const std::filesystem::path& input_video_path, const std::filesystem::path& dataset_dir) {
     std::string input_video_filename = input_video_path.stem().string();
+
+    std::string model_path_str = model_path.string();
+    // check if contains double quotes
+    if (model_path_str.find("\"") != std::string::npos) {
+        // XXX escape double quotes for pbtext syntax
+        LOG(ERROR) << "Model path contains double quotes: " << model_path_str;
+        return absl::InvalidArgumentError("Model path cannot contain double quotes so that it can directly embed in the pbtext without escape");
+    }
 
     mediapipe::CalculatorGraphConfig config = mediapipe::ParseTextProtoOrDie<mediapipe::CalculatorGraphConfig>(R"pb(
         output_stream: "output_stream"
@@ -76,11 +89,10 @@ absl::Status RunGraph(const std::filesystem::path& input_video_path, const std::
                 [type.googleapis.com/mediapipe.tasks.vision.image_classifier.proto.ImageClassifierGraphOptions] {
                     base_options {
                         model_asset {
-                            file_name: "models/efficientnet_lite2.tflite"
+                            file_name: ")pb" + model_path_str + R"pb("
                         }
                     }
                     classifier_options {
-                        max_results: 1
                         score_threshold: 0.2
                     }
                 }
@@ -91,10 +103,9 @@ absl::Status RunGraph(const std::filesystem::path& input_video_path, const std::
             calculator: "ClassificationImageGateCalculator"
             input_stream: "CLASSIFICATIONS:classifications"
             input_stream: "IMAGE:classified_image"
-            output_stream: "LABEL_AND_IMAGE:output_stream"
+            output_stream: "LABEL_SCORE_IMAGE:output_stream"
         }
     )pb");
-
 
     mediapipe::CalculatorGraph graph;
     MP_RETURN_IF_ERROR(graph.Initialize(config));
@@ -132,9 +143,9 @@ absl::Status RunGraph(const std::filesystem::path& input_video_path, const std::
                 *last_packet_received_time = std::chrono::steady_clock::now();
             }
 
-            std::pair<std::string, std::shared_ptr<const mediapipe::ImageFrame>> label_and_frame = packet.Get<std::pair<std::string, std::shared_ptr<const mediapipe::ImageFrame>>>();
-            const std::string& label = label_and_frame.first;
-            const std::shared_ptr<const mediapipe::ImageFrame> output_frame = label_and_frame.second;
+            std::pair<std::vector<std::pair<std::string, double>>, std::shared_ptr<const mediapipe::ImageFrame>> label_score_frame = packet.Get<std::pair<std::vector<std::pair<std::string, double>>, std::shared_ptr<const mediapipe::ImageFrame>>>();
+            const std::vector<std::pair<std::string, double>>& label_score_list = label_score_frame.first;
+            const std::shared_ptr<const mediapipe::ImageFrame> output_frame = label_score_frame.second;
             mediapipe::Timestamp timestamp = packet.Timestamp();
 
             cv::Mat output_frame_mat_bgr;
@@ -145,6 +156,25 @@ absl::Status RunGraph(const std::filesystem::path& input_video_path, const std::
                 LOG(ERROR) << "Failed to convert ImageFrame to cv::Mat: " << e.what();
                 error_status->Update(absl::InternalError("Failed to convert ImageFrame to cv::Mat"));
                 return absl::OkStatus();
+            }
+
+            std::string label;
+            if (label_score_list.empty()) {
+                LOG(INFO) << "No label found";
+                return absl::OkStatus();
+            } else if (label_score_list.size() == 1) {
+                label = label_score_list[0].first;
+            } else {
+                std::vector<std::string> labels;
+                for (const auto& label_score : label_score_list) {
+                    labels.push_back(label_score.first);
+                }
+                std::sort(labels.begin(), labels.end());
+                // join labels with comma
+                label = std::accumulate(std::next(labels.begin()), labels.end(), labels.front(), [](std::string a, std::string b) {
+                    return a + "_" + b;
+                });
+                label = "ambiguous_" + label;
             }
 
             std::filesystem::path label_dir = dataset_dir / label;
@@ -244,14 +274,42 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
+    std::string model_path_str = absl::GetFlag(FLAGS_model_path);
+    if (model_path_str.empty()) {
+        LOG(ERROR) << "You must specify a model path using --model_path";
+        return EXIT_FAILURE;
+    }
+
+    // open tried_video_list.txt
+    std::unordered_set<std::string> tried_videos;
+    {
+        std::ifstream tried_video_list_txt_istream(tried_video_list_txt_path, std::ifstream::in);
+        if (tried_video_list_txt_istream.is_open()) {
+            std::string line;
+            while (std::getline(tried_video_list_txt_istream, line)) {
+                tried_videos.insert(line);
+            }
+        }
+    }
+
     std::filesystem::path video_dir(video_dir_str);
     const std::filesystem::path dataset_dir(dataset_dir_str);
 
     unsigned int consecutive_errors = 0;
 
+
     // readdir
     for (const auto& entry : std::filesystem::directory_iterator(video_dir)) {
+        if (g_inturrpted_signal_received) {
+            break;
+        }
+
         const std::filesystem::path& video_path = entry.path();
+        if (tried_videos.find(video_path.string()) != tried_videos.end()) {
+            LOG(INFO) << "Skipping already tried video: " << video_path.string();
+            continue;
+        }
+
         if (entry.is_directory()) {
             LOG(INFO) << "Skipping directory: " << video_path.string();
             continue;
@@ -263,8 +321,21 @@ int main(int argc, char** argv) {
             continue;
         }
 
+        tried_videos.insert(video_path.string());
+        {
+            // write to tried_video_list.txt before processing
+            // if crashes, the video will be skipped next time
+            std::ofstream tried_video_list_txt_stream(tried_video_list_txt_path, std::ofstream::app);
+            if (!tried_video_list_txt_stream.is_open()) {
+                LOG(ERROR) << "Failed to open tried_video_list.txt";
+                return EXIT_FAILURE;
+            }
+            tried_video_list_txt_stream << video_path.string() << std::endl;
+            std::flush(tried_video_list_txt_stream);
+        }
+
         LOG(INFO) << "Processing video: " << video_path.string();
-        absl::Status status = RunGraph(video_path, dataset_dir);
+        absl::Status status = RunGraph(std::filesystem::path(model_path_str), video_path, dataset_dir);
         if (!status.ok()) {
             LOG(ERROR) << "Failed to run the graph: " << status.message();
             consecutive_errors++;
@@ -274,10 +345,6 @@ int main(int argc, char** argv) {
             }
         } else {
             consecutive_errors = 0;
-        }
-
-        if (g_inturrpted_signal_received) {
-            break;
         }
     }
 
