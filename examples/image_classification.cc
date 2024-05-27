@@ -8,6 +8,7 @@
 #include <utility>
 #include <unordered_set>
 #include <fstream>
+#include <functional>
 
 #include "absl/flags/parse.h"
 #include "absl/flags/flag.h"
@@ -26,6 +27,7 @@
 ABSL_FLAG(std::string, video_dir, "", "video dir");
 ABSL_FLAG(std::string, dataset_dir, "", "dataset dir");
 ABSL_FLAG(std::string, model_path, "", "model path");
+ABSL_FLAG(std::vector<std::string>, interests, {}, "interest");
 
 std::sig_atomic_t g_inturrpted_signal_received = false;
 void interrupted_signal_handler(int signal) {
@@ -39,7 +41,15 @@ std::unordered_set<std::string> g_video_extensions = {
 
 std::filesystem::path tried_video_list_txt_path = "tried_video_list.txt";
 
-absl::Status RunGraph(const std::filesystem::path& model_path, const std::filesystem::path& input_video_path, const std::filesystem::path& dataset_dir) {
+std::string score_to_label(double score) {
+    std::string score_label = std::to_string(static_cast<int>(score * 10));
+    if (score >= 10) {
+        score_label = "9";
+    }
+    return score_label;
+}
+
+absl::Status RunGraph(const std::filesystem::path& model_path, const std::filesystem::path& input_video_path, const std::filesystem::path& dataset_dir, const std::vector<std::string>& interests) {
     std::string input_video_filename = input_video_path.stem().string();
 
     std::string model_path_str = model_path.string();
@@ -48,6 +58,11 @@ absl::Status RunGraph(const std::filesystem::path& model_path, const std::filesy
         // XXX escape double quotes for pbtext syntax
         LOG(ERROR) << "Model path contains double quotes: " << model_path_str;
         return absl::InvalidArgumentError("Model path cannot contain double quotes so that it can directly embed in the pbtext without escape");
+    }
+
+    std::string category_allowlist = "";
+    for (const std::string& interest : interests) {
+        category_allowlist += "category_allowlist: \"" + interest + "\"\n";
     }
 
     mediapipe::CalculatorGraphConfig config = mediapipe::ParseTextProtoOrDie<mediapipe::CalculatorGraphConfig>(R"pb(
@@ -93,7 +108,8 @@ absl::Status RunGraph(const std::filesystem::path& model_path, const std::filesy
                         }
                     }
                     classifier_options {
-                        score_threshold: 0.2
+                        score_threshold: 0.4
+                        )pb" + category_allowlist + R"pb(
                     }
                 }
             }
@@ -158,23 +174,34 @@ absl::Status RunGraph(const std::filesystem::path& model_path, const std::filesy
                 return absl::OkStatus();
             }
 
+
             std::string label;
             if (label_score_list.empty()) {
                 LOG(INFO) << "No label found";
                 return absl::OkStatus();
             } else if (label_score_list.size() == 1) {
-                label = label_score_list[0].first;
+                label = label_score_list[0].first + "_" + score_to_label(label_score_list[0].second);
             } else {
-                std::vector<std::string> labels;
-                for (const auto& label_score : label_score_list) {
-                    labels.push_back(label_score.first);
+                std::vector<std::pair<std::string, double>> ordered_label_score_list = label_score_list;
+                std::sort(ordered_label_score_list.begin(), ordered_label_score_list.end(), [](const std::pair<std::string, double>& a, const std::pair<std::string, double>& b) {
+                    return a.second > b.second;
+                });
+                std::vector<std::string> label_components;
+
+                for (const auto& label_score : ordered_label_score_list) {
+                    const std::string& label = label_score.first;
+                    label_components.push_back(label);
+
+                    const double score = label_score.second;
+                    LOG(INFO) << "Label: " << label_score.first << ", Score: " << label_score.second;
+
+                    // score to 0 - 9 labels
+                    label_components.push_back(score_to_label(score));
                 }
-                std::sort(labels.begin(), labels.end());
-                // join labels with comma
-                label = std::accumulate(std::next(labels.begin()), labels.end(), labels.front(), [](std::string a, std::string b) {
+
+                label = std::accumulate(std::next(label_components.begin()), label_components.end(), label_components[0], [](const std::string& a, const std::string& b) {
                     return a + "_" + b;
                 });
-                label = "ambiguous_" + label;
             }
 
             std::filesystem::path label_dir = dataset_dir / label;
@@ -237,8 +264,8 @@ absl::Status RunGraph(const std::filesystem::path& model_path, const std::filesy
 
             std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
             std::chrono::duration<double> elapsed_seconds = now - *last_packet_received_time;
-            if (elapsed_seconds.count() > 10) {
-                LOG(ERROR) << "No packet received for 10 seconds. Exiting...";
+            if (elapsed_seconds.count() > 30) {
+                LOG(ERROR) << "No packet received for 30 seconds. Exiting...";
                 break;
             }
         }
@@ -279,6 +306,8 @@ int main(int argc, char** argv) {
         LOG(ERROR) << "You must specify a model path using --model_path";
         return EXIT_FAILURE;
     }
+
+    std::vector<std::string> interests = absl::GetFlag(FLAGS_interests);
 
     // open tried_video_list.txt
     std::unordered_set<std::string> tried_videos;
@@ -335,7 +364,7 @@ int main(int argc, char** argv) {
         }
 
         LOG(INFO) << "Processing video: " << video_path.string();
-        absl::Status status = RunGraph(std::filesystem::path(model_path_str), video_path, dataset_dir);
+        absl::Status status = RunGraph(std::filesystem::path(model_path_str), video_path, dataset_dir, interests);
         if (!status.ok()) {
             LOG(ERROR) << "Failed to run the graph: " << status.message();
             consecutive_errors++;
