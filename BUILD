@@ -4,15 +4,15 @@ refresh_compile_commands(
     name = "refresh_compile_commands",
 
     targets = {
-#       "//examples:hello_world": "",
-#       "//examples:face_mesh": "",
-#       "//examples:face_mesh_async": "",
-#       "//examples:crop_human": "",
-#       "//examples:use_custom_calculator": "",
-#       "//examples:image_classification": "",
-#       "//examples:hello_inja": "",
+      "//examples:hello_world": "",
+      "//examples:face_mesh": "",
+      "//examples:face_mesh_async": "",
+      "//examples:crop_human": "",
+      "//examples:use_custom_calculator": "",
+      "//examples:image_classification": "",
+      "//examples:hello_inja": "",
       "//examples:hello_sdl2": "",
-#       "//calculators:calculators": "",
+      "//calculators:calculators": "",
     },
 )
 
