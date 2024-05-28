@@ -153,6 +153,11 @@ cc_binary(
     deps = [
         "//:sdl2",
         "@com_google_absl//absl/status:status",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:parse",
+        "@mediapipe//mediapipe/framework/port:opencv_highgui",
+        "@mediapipe//mediapipe/framework/port:opencv_imgproc",
+        "@mediapipe//mediapipe/framework/port:opencv_video",
     ],
 )
 
