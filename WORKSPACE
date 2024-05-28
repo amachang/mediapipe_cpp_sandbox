@@ -20,6 +20,35 @@ hedron_compile_commands_setup_transitive_transitive()
 load("@hedron_compile_commands//:workspace_setup_transitive_transitive_transitive.bzl", "hedron_compile_commands_setup_transitive_transitive_transitive")
 hedron_compile_commands_setup_transitive_transitive_transitive()
 
+# json
+http_archive(
+    name = "nlohmann_json",
+    strip_prefix = "json-3.11.3",
+    urls = [
+        "https://github.com/nlohmann/json/archive/v3.11.3.tar.gz",
+    ],
+)
+
+# inja
+http_archive(
+    name = "inja",
+    strip_prefix = "inja-3.4.0",
+    urls = [
+        "https://github.com/pantor/inja/archive/refs/tags/v3.4.0.tar.gz",
+    ],
+    build_file_content = """
+cc_library(
+    name = "inja",
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+    deps = [
+        "@nlohmann_json//:json",
+    ],
+    visibility = ["//visibility:public"],
+)
+    """
+)
+
 # Mediapipe
 http_archive(
     name = "mediapipe",

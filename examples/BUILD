@@ -139,3 +139,11 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "hello_inja",
+    srcs = ["hello_inja.cc"],
+    deps = [
+        "@inja//:inja",
+    ],
+)
+
