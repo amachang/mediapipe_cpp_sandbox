@@ -147,3 +147,12 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "hello_sdl2",
+    srcs = ["hello_sdl2.cc"],
+    deps = [
+        "//:sdl2",
+        "@com_google_absl//absl/status:status",
+    ],
+)
+

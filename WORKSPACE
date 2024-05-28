@@ -1,5 +1,8 @@
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
+# This is used to select all contents of the archives for CMake-based packages to give CMake access to them.
+all_content = """filegroup(name = "all", srcs = glob(["**"]), visibility = ["//visibility:public"])"""
+
 # Hedron's Compile Commands Extractor for Bazel
 # https://github.com/hedronvision/bazel-compile-commands-extractor
 http_archive(
@@ -47,6 +50,29 @@ cc_library(
     visibility = ["//visibility:public"],
 )
     """
+)
+
+# foreign cc
+http_archive(
+    name = "rules_foreign_cc",
+    # TODO: Get the latest sha256 value from a bazel debug message or the latest 
+    #       release on the releases page: https://github.com/bazelbuild/rules_foreign_cc/releases
+    #
+    # sha256 = "...",
+    strip_prefix = "rules_foreign_cc-0.9.0",
+    url = "https://github.com/bazelbuild/rules_foreign_cc/archive/0.9.0.tar.gz",
+)
+load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
+rules_foreign_cc_dependencies()
+
+# sdl2
+http_archive(
+    name = "sdl2",
+    build_file_content = all_content,
+    strip_prefix = "SDL2-2.30.3",
+    urls = [
+        "https://github.com/libsdl-org/SDL/releases/download/release-2.30.3/SDL2-2.30.3.tar.gz",
+    ],
 )
 
 # Mediapipe
@@ -207,9 +233,6 @@ load(
     "apple_support_dependencies",
 )
 apple_support_dependencies()
-
-# This is used to select all contents of the archives for CMake-based packages to give CMake access to them.
-all_content = """filegroup(name = "all", srcs = glob(["**"]), visibility = ["//visibility:public"])"""
 
 # GoogleTest/GoogleMock framework. Used by most unit-tests.
 # Last updated 2021-07-02.
