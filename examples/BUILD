@@ -161,3 +161,23 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "video_size_transformation",
+    srcs = ["video_size_transformation.cc"],
+    deps = [
+        "//calculators:calculators",
+        "//:sdl2",
+        "@com_google_absl//absl/status:status",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:parse",
+        "@mediapipe//mediapipe/framework:calculator_framework",
+        "@mediapipe//mediapipe/framework/formats:image_frame",
+        "@mediapipe//mediapipe/framework/formats:image_frame_opencv",
+        "@mediapipe//mediapipe/calculators/image:image_transformation_calculator",
+        "@mediapipe//mediapipe/framework/port:opencv_highgui",
+        "@mediapipe//mediapipe/framework/port:opencv_imgproc",
+        "@mediapipe//mediapipe/framework/port:opencv_video",
+        "@mediapipe//mediapipe/framework/port:parse_text_proto",
+    ],
+)
+
