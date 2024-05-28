@@ -1,5 +1,9 @@
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
+# Conan package manager
+load("@//conan:dependencies.bzl", "load_conan_dependencies")
+load_conan_dependencies()
+
 
 # Hedron's Compile Commands Extractor for Bazel
 # https://github.com/hedronvision/bazel-compile-commands-extractor

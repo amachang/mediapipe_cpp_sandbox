@@ -10,6 +10,7 @@ refresh_compile_commands(
       "//examples:crop_human": "",
       "//examples:use_custom_calculator": "",
       "//examples:image_classification": "",
+      "//examples:conan_inja_template": "",
       "//calculators:calculators": "",
     },
 )

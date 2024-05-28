@@ -1,0 +1,10 @@
+[requires]
+inja/3.4.0
+
+[generators]
+BazelDeps
+BazelToolchain
+
+[layout]
+bazel_layout
+

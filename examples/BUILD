@@ -138,3 +138,12 @@ cc_binary(
         "@com_google_absl//absl/log:absl_log",
     ],
 )
+
+cc_binary(
+    name = "conan_inja_template"
+    srcs = ["conan_inja_template.cc"],
+    deps = [
+        "@inja//inja",
+    ],
+)
+
