@@ -139,11 +139,3 @@ cc_binary(
     ],
 )
 
-cc_binary(
-    name = "conan_inja_template"
-    srcs = ["conan_inja_template.cc"],
-    deps = [
-        "@inja//inja",
-    ],
-)
-
