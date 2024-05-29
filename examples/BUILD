@@ -185,3 +185,17 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "simple_tflite_interpreter",
+    srcs = ["simple_tflite_interpreter.cc"],
+    deps = [
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:optional",
+        "@org_tensorflow//tensorflow/lite:framework",
+        "@org_tensorflow//tensorflow/lite:type_to_tflitetype",
+        "@org_tensorflow//tensorflow/lite/kernels:builtin_ops",
+        "@org_tensorflow//tensorflow/lite/kernels/internal:tensor",
+    ]
+)
+
