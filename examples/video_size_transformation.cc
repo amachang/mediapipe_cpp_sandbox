@@ -1,13 +1,13 @@
-#include "absl/flags/parse.h"
-#include "absl/flags/flag.h"
-#include "absl/status/status.h"
-#include "glog/logging.h"
 #include <thread>
-#include <SDL2/SDL.h>
 #include <queue>
 #include <mutex>
 #include <condition_variable>
 #include <filesystem>
+
+#include "absl/flags/parse.h"
+#include "absl/flags/flag.h"
+#include "absl/status/status.h"
+#include "glog/logging.h"
 
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
@@ -18,6 +18,9 @@
 #include "mediapipe/framework/port/opencv_video_inc.h"
 #include "mediapipe/tasks/cc/components/containers/classification_result.h"
 
+#include <inja/inja.hpp>
+#include <SDL2/SDL.h>
+
 struct pair_hash {
     template <class T1, class T2>
     std::size_t operator() (const std::pair<T1, T2>& p) const {
@@ -27,36 +30,105 @@ struct pair_hash {
     }
 };
 
-int target_size = 800;
+int window_width = 800;
 
 ABSL_FLAG(std::string, video_path, "", "video path");
+ABSL_FLAG(std::string, model_path, "", "model path");
 
 absl::Status RunMediapipe(
         const std::filesystem::path& video_path, 
+        const std::filesystem::path& model_path,
         std::queue<std::pair<std::chrono::microseconds, std::unique_ptr<cv::Mat>>>& frame_queue, 
         std::mutex& frame_queue_mutex
         ) {
 
-    mediapipe::CalculatorGraphConfig config = mediapipe::ParseTextProtoOrDie<mediapipe::CalculatorGraphConfig>(R"pb(
+    inja::Environment env;
+    inja::Template calculator_graph_template = env.parse(R"pb(
         output_stream: "output_stream"
 
         # Input video
         node {
             calculator: "VideoDecoderCalculator"
             input_side_packet: "INPUT_FILE_PATH:input_video_path"
-            output_stream: "VIDEO:output_stream"
+            output_stream: "VIDEO:input_stream"
+        }
+
+        node {
+            calculator: "PacketThinnerCalculator"
+            input_stream: "input_stream"
+            output_stream: "downsampled_input_image"
+            node_options: {
+                [type.googleapis.com/mediapipe.PacketThinnerCalculatorOptions] {
+                    thinner_type: ASYNC
+                    period: 1000000
+                }
+            }
+        }
+
+        node: {
+            calculator: "ImageTransformationCalculator"
+            input_stream: "IMAGE:downsampled_input_image"
+            output_stream: "IMAGE:square_input_image"
+            node_options: {
+                [type.googleapis.com/mediapipe.ImageTransformationCalculatorOptions] {
+                    output_width: 300
+                    output_height: 300
+                    scale_mode: FIT
+                }
+            }
+        }
+
+        # ImageFrame -> Image (just type conversion)
+        node {
+            calculator: "ToImageCalculator"
+            input_stream: "IMAGE:square_input_image"
+            output_stream: "IMAGE:used_by_classifier_image"
+        }
+
+        node {
+            calculator: "mediapipe.tasks.vision.image_classifier.ImageClassifierGraph"
+            input_stream: "IMAGE:used_by_classifier_image"
+            output_stream: "CLASSIFICATIONS:classifications"
+            output_stream: "IMAGE:classified_image"
+            node_options {
+                [type.googleapis.com/mediapipe.tasks.vision.image_classifier.proto.ImageClassifierGraphOptions] {
+                    base_options {
+                        model_asset {
+                            file_name: "{{ model_path }}" # TODO escape path
+                        }
+                    }
+                    classifier_options {
+                        score_threshold: 0.6
+                    }
+                }
+            }
+        }
+        node {
+            calculator: "ClassificationImageGateCalculator"
+            input_stream: "CLASSIFICATIONS:classifications"
+            input_stream: "IMAGE:classified_image"
+            output_stream: "LABEL_SCORE_IMAGE:output_stream"
         }
     )pb");
+
+    std::string calculator_graph_str = env.render(calculator_graph_template, {{"model_path", model_path.string()}});
+    LOG(INFO) << "Calculator graph: " << calculator_graph_str;
+    mediapipe::CalculatorGraphConfig config = mediapipe::ParseTextProtoOrDie<mediapipe::CalculatorGraphConfig>(calculator_graph_str);
 
     mediapipe::CalculatorGraph graph;
     MP_RETURN_IF_ERROR(graph.Initialize(config));
 
     MP_RETURN_IF_ERROR(graph.ObserveOutputStream("output_stream", [&frame_queue, &frame_queue_mutex](const mediapipe::Packet& packet) {
                 const mediapipe::Timestamp& timestamp = packet.Timestamp();
-                LOG(INFO) << "Timestamp: " << timestamp.Microseconds();
                 const std::chrono::microseconds timestamp_us = std::chrono::microseconds(timestamp.Microseconds());
-                const mediapipe::ImageFrame& frame = packet.Get<mediapipe::ImageFrame>();
-                if (frame.IsEmpty()) {
+                LOG(INFO) << "Received frame at " << timestamp.Microseconds();
+
+                std::pair<std::vector<std::pair<std::string, double>>, std::shared_ptr<const mediapipe::ImageFrame>> label_score_frame = packet.Get<std::pair<std::vector<std::pair<std::string, double>>, std::shared_ptr<const mediapipe::ImageFrame>>>();
+                std::vector<std::pair<std::string, double>> label_score = label_score_frame.first;
+                std::shared_ptr<const mediapipe::ImageFrame> frame = label_score_frame.second;
+
+                // TODO no more effective, video decoder calculator must make a boolean flag stream only for the last frame
+                if (frame->IsEmpty()) {
                     std::unique_ptr<cv::Mat> end_of_video(nullptr);
                     {
                         std::lock_guard<std::mutex> lock(frame_queue_mutex);
@@ -66,33 +138,23 @@ absl::Status RunMediapipe(
                 }
 
                 // ensure the frame copy here
-                cv::Mat frame_mat(frame.Height(), frame.Width(), CV_8UC3);
-                if (frame_mat.channels() == 3) {
-                    cv::cvtColor(mediapipe::formats::MatView(&frame), frame_mat, cv::COLOR_RGB2BGR);
+                std::unique_ptr<cv::Mat> frame_mat(new cv::Mat(frame->Height(), frame->Width(), CV_8UC3));
+                if (frame_mat->channels() == 3) {
+                    cv::cvtColor(mediapipe::formats::MatView(&*frame), *frame_mat, cv::COLOR_RGB2BGR);
                 } else {
                     return absl::InternalError("Unsupported number of channels");
                 }
-                ABSL_ASSERT(frame_mat.data != nullptr);
-
-                // resize and pad, keeping aspect ratio
-                int frame_width = frame_mat.cols;
-                int frame_height = frame_mat.rows;
-                double aspect_ratio = static_cast<double>(frame_width) / static_cast<double>(frame_height);
-                std::unique_ptr<cv::Mat> frame_mat_resized = std::make_unique<cv::Mat>(target_size, target_size, CV_8UC3, cv::Scalar(0, 0, 0));
-                // put the resized frame in the center
-                if (aspect_ratio > 1.0) {
-                    int resized_height = static_cast<int>(static_cast<double>(target_size) / aspect_ratio);
-                    cv::Mat resized_frame(*frame_mat_resized, cv::Rect(0, (target_size - resized_height) / 2, target_size, resized_height));
-                    cv::resize(frame_mat, resized_frame, resized_frame.size(), 0, 0, cv::INTER_LINEAR);
-                } else {
-                    int resized_width = static_cast<int>(static_cast<double>(target_size) * aspect_ratio);
-                    cv::Mat resized_frame(*frame_mat_resized, cv::Rect((target_size - resized_width) / 2, 0, resized_width, target_size));
-                    cv::resize(frame_mat, resized_frame, resized_frame.size(), 0, 0, cv::INTER_LINEAR);
+                // rough serialize the label and score
+                std::string label_score_str;
+                for (const auto& label_score_pair : label_score) {
+                    label_score_str += label_score_pair.first + ": " + std::to_string(label_score_pair.second) + "\n";
                 }
+                ABSL_ASSERT(frame_mat->data != nullptr);
+                cv::putText(*frame_mat, label_score_str, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
 
                 {
                     std::lock_guard<std::mutex> lock(frame_queue_mutex);
-                    frame_queue.push({ timestamp_us, std::move(frame_mat_resized) });
+                    frame_queue.push({ timestamp_us, std::move(frame_mat) });
                 }
                 return absl::OkStatus();
                 }));
@@ -162,7 +224,7 @@ absl::Status RunPlayer(
             int surface_height = surface->h;
 
             double aspect_ratio = static_cast<double>(surface_width) / static_cast<double>(surface_height);
-            SDL_SetWindowSize(window, target_size, static_cast<int>(static_cast<double>(target_size) / aspect_ratio));
+            SDL_SetWindowSize(window, window_width, static_cast<int>(static_cast<double>(window_width) / aspect_ratio));
 
             std::pair<int, int> surface_size(surface_width, surface_height);
             auto it = texture_cache.find(surface_size);
@@ -225,13 +287,20 @@ int main(int argc, char* argv[]) {
     }
     std::filesystem::path video_path(video_path_str);
 
+    std::string model_path_str = absl::GetFlag(FLAGS_model_path);
+    if (model_path_str.empty()) {
+        LOG(ERROR) << "Please specify model path with --model_path flag";
+        return EXIT_FAILURE;
+    }
+    std::filesystem::path model_path(model_path_str);
+
     // set of frame queue
     std::queue<std::pair<std::chrono::microseconds, std::unique_ptr<cv::Mat>>> frame_queue;
     std::mutex frame_queue_mutex;
 
     absl::Status mediapipe_status;
-    std::thread mediapipe_thread([&frame_queue, &frame_queue_mutex, &mediapipe_status, &video_path]() {
-        mediapipe_status = RunMediapipe(video_path, frame_queue, frame_queue_mutex);
+    std::thread mediapipe_thread([&frame_queue, &frame_queue_mutex, &mediapipe_status, &video_path, &model_path]() {
+        mediapipe_status = RunMediapipe(video_path, model_path, frame_queue, frame_queue_mutex);
         LOG(INFO) << "Mediapipe thread finished: " << mediapipe_status.message();
     });
 
@@ -244,8 +313,8 @@ int main(int argc, char* argv[]) {
                     file_stem.c_str(),
                     SDL_WINDOWPOS_CENTERED,
                     SDL_WINDOWPOS_CENTERED,
-                    target_size,
-                    target_size,
+                    window_width,
+                    window_width,
                     SDL_WINDOW_SHOWN
                     ),
                 SDL_DestroyWindow
