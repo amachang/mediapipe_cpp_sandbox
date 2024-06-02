@@ -26,6 +26,7 @@
 #include "mediapipe/tasks/cc/components/containers/classification_result.h"
 
 #include <inja/inja.hpp>
+#include <sqlite3.h>
 
 struct pair_hash {
     template <class T1, class T2>
@@ -201,6 +202,55 @@ absl::Status RunMediapipe(
     return absl::OkStatus();
 }
 
+absl::StatusOr<std::unique_ptr<sqlite3, decltype(&sqlite3_close)>> OpenDatabaseAndMigrateIfNeeded() {
+    std::filesystem::path db_path = "./main.db";
+    sqlite3* db_ptr;
+    int r = sqlite3_open(db_path.string().c_str(), &db_ptr);
+    RET_CHECK(r == SQLITE_OK);
+    std::unique_ptr<sqlite3, decltype(&sqlite3_close)> db(db_ptr, sqlite3_close);
+
+    // check version table
+    const char* version_table_sql = "CREATE TABLE IF NOT EXISTS version (version INTEGER)";
+    char* err_msg = nullptr;
+    r = sqlite3_exec(db.get(), version_table_sql, nullptr, nullptr, &err_msg);
+    RET_CHECK(r == SQLITE_OK);
+
+    {
+        int version = 1;
+
+        const char* version_query = "SELECT version FROM version WHERE version = ?";
+        sqlite3_stmt* stmt_ptr;
+        r = sqlite3_prepare_v2(db.get(), version_query, -1, &stmt_ptr, nullptr);
+        RET_CHECK(r == SQLITE_OK);
+        std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> stmt(stmt_ptr, sqlite3_finalize);
+
+        r = sqlite3_bind_int(stmt.get(), 1, version);
+        RET_CHECK(r == SQLITE_OK);
+
+        r = sqlite3_step(stmt.get());
+        RET_CHECK(r == SQLITE_DONE || r == SQLITE_ROW);
+        if (r == SQLITE_DONE) {
+            LOG(INFO) << "Empty version table, migrating";
+
+            const char* create_video_table_sql = "CREATE TABLE video (id INTEGER PRIMARY KEY, path TEXT, done BOOLEAN)";
+            r = sqlite3_exec(db.get(), create_video_table_sql, nullptr, nullptr, &err_msg);
+            RET_CHECK(r == SQLITE_OK);
+
+            const char* insert_version_sql = "INSERT INTO version (version) VALUES (?)";
+            sqlite3_stmt* insert_stmt_ptr;
+            r = sqlite3_prepare_v2(db.get(), insert_version_sql, -1, &insert_stmt_ptr, nullptr);
+            RET_CHECK(r == SQLITE_OK);
+            std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> insert_stmt(insert_stmt_ptr, sqlite3_finalize);
+            r = sqlite3_bind_int(insert_stmt.get(), 1, version);
+            RET_CHECK(r == SQLITE_OK);
+            r = sqlite3_step(insert_stmt.get());
+            RET_CHECK(r == SQLITE_DONE);
+        }
+    }
+
+    return std::move(db);
+}
+
 int main(int argc, char* argv[]) {
     google::InitGoogleLogging(argv[0]);
 
@@ -245,12 +295,70 @@ int main(int argc, char* argv[]) {
     double capture_period = absl::GetFlag(FLAGS_capture_period);
     double score_threshold = absl::GetFlag(FLAGS_score_threshold);
 
+    absl::StatusOr<std::unique_ptr<sqlite3, decltype(&sqlite3_close)>> status_or_db = OpenDatabaseAndMigrateIfNeeded();
+    if (!status_or_db.ok()) {
+        LOG(ERROR) << "Error: " << status_or_db.status().message();
+        return EXIT_FAILURE;
+    }
+    std::unique_ptr<sqlite3, decltype(&sqlite3_close)> db = std::move(status_or_db.value());
+
     for (const auto& entry : std::filesystem::directory_iterator(video_dir)) {
         std::filesystem::path video_path = entry.path();
         LOG(INFO) << "Processing video: " << video_path;
+
+        const char* select_video_sql = "SELECT done FROM video WHERE path = ?";
+        sqlite3_stmt* select_stmt_ptr;
+        int r = sqlite3_prepare_v2(db.get(), select_video_sql, -1, &select_stmt_ptr, nullptr);
+        if (r != SQLITE_OK) {
+            LOG(ERROR) << "Error: " << sqlite3_errmsg(db.get());
+            return EXIT_FAILURE;
+        }
+        std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> select_stmt(select_stmt_ptr, sqlite3_finalize);
+        r = sqlite3_bind_text(select_stmt.get(), 1, video_path.string().c_str(), -1, SQLITE_STATIC);
+        if (r != SQLITE_OK) {
+            LOG(ERROR) << "Error: " << sqlite3_errmsg(db.get());
+            return EXIT_FAILURE;
+        }
+        r = sqlite3_step(select_stmt.get());
+        if (r != SQLITE_DONE && r != SQLITE_ROW) {
+            LOG(ERROR) << "Error: " << sqlite3_errmsg(db.get());
+            return EXIT_FAILURE;
+        }
+        if (r == SQLITE_ROW) {
+            int done = sqlite3_column_int(select_stmt.get(), 0);
+            if (done) {
+                LOG(INFO) << "Video already processed: " << video_path;
+                continue;
+            }
+        }
+
         absl::Status mediapipe_status = RunMediapipe(video_path, model_path, output_dir, capture_period, model_input_size, model_input_scale_mode, score_threshold);
         if (!mediapipe_status.ok()) {
             LOG(ERROR) << "Error: " << mediapipe_status.message();
+            return EXIT_FAILURE;
+        }
+
+        const char* insert_video_sql = "INSERT INTO video (path, done) VALUES (?, ?)";
+        sqlite3_stmt* insert_stmt_ptr;
+        r = sqlite3_prepare_v2(db.get(), insert_video_sql, -1, &insert_stmt_ptr, nullptr);
+        if (r != SQLITE_OK) {
+            LOG(ERROR) << "Error: " << sqlite3_errmsg(db.get());
+            return EXIT_FAILURE;
+        }
+        std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> insert_stmt(insert_stmt_ptr, sqlite3_finalize);
+        r = sqlite3_bind_text(insert_stmt.get(), 1, video_path.string().c_str(), -1, SQLITE_STATIC);
+        if (r != SQLITE_OK) {
+            LOG(ERROR) << "Error: " << sqlite3_errmsg(db.get());
+            return EXIT_FAILURE;
+        }
+        r = sqlite3_bind_int(insert_stmt.get(), 2, 1);
+        if (r != SQLITE_OK) {
+            LOG(ERROR) << "Error: " << sqlite3_errmsg(db.get());
+            return EXIT_FAILURE;
+        }
+        r = sqlite3_step(insert_stmt.get());
+        if (r != SQLITE_DONE) {
+            LOG(ERROR) << "Error: " << sqlite3_errmsg(db.get());
             return EXIT_FAILURE;
         }
     }

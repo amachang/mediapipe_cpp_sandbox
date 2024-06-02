@@ -215,6 +215,7 @@ cc_binary(
     deps = [
         "//calculators:calculators",
         "@inja//:inja",
+        "@sqlite//:sqlite3",
         "@com_google_absl//absl/status:status",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/flags:parse",

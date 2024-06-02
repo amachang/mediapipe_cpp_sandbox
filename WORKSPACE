@@ -3,6 +3,14 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 # This is used to select all contents of the archives for CMake-based packages to give CMake access to them.
 all_content = """filegroup(name = "all", srcs = glob(["**"]), visibility = ["//visibility:public"])"""
 
+# sqlite
+SQLITE_BAZEL_COMMIT = "1ef58d2d8d54e79404edd86fadd315e19ef63fee"
+http_archive(
+    name = "sqlite",
+    strip_prefix = "sqlite-bazel-" + SQLITE_BAZEL_COMMIT,
+    urls = ["https://github.com/rockwotj/sqlite-bazel/archive/%s.zip" % SQLITE_BAZEL_COMMIT],
+)
+
 # Hedron's Compile Commands Extractor for Bazel
 # https://github.com/hedronvision/bazel-compile-commands-extractor
 http_archive(
