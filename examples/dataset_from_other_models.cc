@@ -49,7 +49,6 @@ ABSL_FLAG(std::string, model_input_scale_mode, "FIT", "video input scale mode");
 ABSL_FLAG(double, capture_period, 5.0, "capture period");
 ABSL_FLAG(double, score_threshold, 0.8, "score threshold");
 
-
 absl::Status RunMediapipe(
         const std::filesystem::path& video_path, 
         const std::filesystem::path& model_path,
@@ -232,7 +231,7 @@ absl::StatusOr<std::unique_ptr<sqlite3, decltype(&sqlite3_close)>> OpenDatabaseA
         if (r == SQLITE_DONE) {
             LOG(INFO) << "Empty version table, migrating";
 
-            const char* create_video_table_sql = "CREATE TABLE video (id INTEGER PRIMARY KEY, path TEXT, done BOOLEAN)";
+            const char* create_video_table_sql = "CREATE TABLE video (id INTEGER PRIMARY KEY, path TEXT UNIQUE, done BOOLEAN)";
             r = sqlite3_exec(db.get(), create_video_table_sql, nullptr, nullptr, &err_msg);
             RET_CHECK(r == SQLITE_OK);
 
@@ -314,7 +313,7 @@ int main(int argc, char* argv[]) {
             return EXIT_FAILURE;
         }
         std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> select_stmt(select_stmt_ptr, sqlite3_finalize);
-        r = sqlite3_bind_text(select_stmt.get(), 1, video_path.string().c_str(), -1, SQLITE_STATIC);
+        r = sqlite3_bind_text(select_stmt.get(), 1, video_path.c_str(), -1, SQLITE_STATIC);
         if (r != SQLITE_OK) {
             LOG(ERROR) << "Error: " << sqlite3_errmsg(db.get());
             return EXIT_FAILURE;
@@ -345,8 +344,11 @@ int main(int argc, char* argv[]) {
             LOG(ERROR) << "Error: " << sqlite3_errmsg(db.get());
             return EXIT_FAILURE;
         }
+
+        LOG(INFO) << "Marking video as done: " << video_path;
+
         std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> insert_stmt(insert_stmt_ptr, sqlite3_finalize);
-        r = sqlite3_bind_text(insert_stmt.get(), 1, video_path.string().c_str(), -1, SQLITE_STATIC);
+        r = sqlite3_bind_text(insert_stmt.get(), 1, video_path.c_str(), -1, SQLITE_STATIC);
         if (r != SQLITE_OK) {
             LOG(ERROR) << "Error: " << sqlite3_errmsg(db.get());
             return EXIT_FAILURE;
