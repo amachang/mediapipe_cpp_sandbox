@@ -209,6 +209,8 @@ class VideoDecoderCalculator : public mediapipe::CalculatorBase {
 
         // Sometimes an empty frame is returned even though there are more frames.
         void ReadFrame(cv::Mat& frame) {
+            assert(width_ == static_cast<int>(cap_->get(cv::CAP_PROP_FRAME_WIDTH)));
+            assert(height_ = static_cast<int>(cap_->get(cv::CAP_PROP_FRAME_HEIGHT)));
             cap_->read(frame);
             if (frame.empty()) {
                 cap_->read(frame);  // Try again.
