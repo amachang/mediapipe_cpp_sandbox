@@ -86,16 +86,50 @@ absl::Status RunMediapipe(
             }
         }
 
-        # ImageFrame -> Image (just type conversion)
+        # Detect face
         node {
             calculator: "ToImageCalculator"
             input_stream: "IMAGE:downsampled_input_image"
-            output_stream: "IMAGE:type_converted_image"
+            output_stream: "IMAGE:used_by_face_detector_image"
+        }
+        node {
+            calculator: "mediapipe.tasks.vision.face_detector.FaceDetectorGraph"
+            input_stream: "IMAGE:used_by_face_detector_image"
+            output_stream: "EXPANDED_FACE_RECTS:face_rects"
+            node_options: {
+                [type.googleapis.com/mediapipe.tasks.vision.face_detector.proto.FaceDetectorGraphOptions] {
+                    base_options {
+                        model_asset {
+                            file_name: "blaze_face_short_range.tflite"
+                        }
+                    }
+                    min_detection_confidence: 0.5
+                    num_faces: 1
+                }
+            }
+        }
+        node {
+            calculator: "SplitNormalizedRectVectorCalculator"
+            input_stream: "face_rects"
+            output_stream: "face_rect"
+            node_options: {
+                [type.googleapis.com/mediapipe.SplitVectorCalculatorOptions] {
+                    ranges: { begin: 0 end: 1 }
+                    element_only: true
+                }
+            }
         }
 
+        # Crop image
+        node {
+            calculator: "ImageCroppingCalculator"
+            input_stream: "IMAGE:downsampled_input_image"
+            input_stream: "NORM_RECT:face_rect"
+            output_stream: "IMAGE:cropped_image_stream"
+        }
         node: {
             calculator: "ImageTransformationCalculator"
-            input_stream: "IMAGE:downsampled_input_image"
+            input_stream: "IMAGE:cropped_image_stream"
             output_stream: "IMAGE:square_input_image"
             node_options: {
                 [type.googleapis.com/mediapipe.ImageTransformationCalculatorOptions] {
@@ -106,13 +140,12 @@ absl::Status RunMediapipe(
             }
         }
 
-        # ImageFrame -> Image (just type conversion)
+        # Classify image
         node {
             calculator: "ToImageCalculator"
             input_stream: "IMAGE:square_input_image"
             output_stream: "IMAGE:used_by_classifier_image"
         }
-
         node {
             calculator: "mediapipe.tasks.vision.image_classifier.ImageClassifierGraph"
             input_stream: "IMAGE:used_by_classifier_image"
@@ -133,6 +166,12 @@ absl::Status RunMediapipe(
             }
         }
 
+        # To callback
+        node {
+            calculator: "ToImageCalculator"
+            input_stream: "IMAGE:cropped_image_stream"
+            output_stream: "IMAGE:type_converted_image"
+        }
         node {
             calculator: "ClassificationImageGateCalculator"
             input_stream: "CLASSIFICATIONS:classifications"
@@ -304,6 +343,12 @@ int main(int argc, char* argv[]) {
     for (const auto& entry : std::filesystem::directory_iterator(video_dir)) {
         std::filesystem::path video_path = entry.path();
         LOG(INFO) << "Processing video: " << video_path;
+
+        std::string extension = video_path.extension().string();
+        if (extension != ".mp4" && extension != ".avi" && extension != ".mov" && extension != ".mkv" && extension != ".flv" && extension != ".webm" && extension != ".wmv") {
+            LOG(INFO) << "Skipping video: " << video_path;
+            continue;
+        }
 
         const char* select_video_sql = "SELECT done FROM video WHERE path = ?";
         sqlite3_stmt* select_stmt_ptr;

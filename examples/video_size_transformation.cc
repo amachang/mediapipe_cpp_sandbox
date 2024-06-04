@@ -60,7 +60,7 @@ absl::Status RunMediapipe(
             node_options: {
                 [type.googleapis.com/mediapipe.PacketThinnerCalculatorOptions] {
                     thinner_type: ASYNC
-                    period: 1000000
+                    period: 100000
                 }
             }
         }

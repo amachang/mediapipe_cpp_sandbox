@@ -103,8 +103,6 @@ class VideoDecoderCalculator : public mediapipe::CalculatorBase {
                     << "Fail to open video file at " << input_file_path;
             }
 
-            width_ = static_cast<int>(cap_->get(cv::CAP_PROP_FRAME_WIDTH));
-            height_ = static_cast<int>(cap_->get(cv::CAP_PROP_FRAME_HEIGHT));
             double fps = static_cast<double>(cap_->get(cv::CAP_PROP_FPS));
             frame_count_ = static_cast<int>(cap_->get(cv::CAP_PROP_FRAME_COUNT));
 
@@ -125,7 +123,10 @@ class VideoDecoderCalculator : public mediapipe::CalculatorBase {
                     << input_file_path;
             }
 
-            if (fps <= 0 || frame_count_ <= 0 || width_ <= 0 || height_ <= 0) {
+            int width = static_cast<int>(cap_->get(cv::CAP_PROP_FRAME_WIDTH));
+            int height = static_cast<int>(cap_->get(cv::CAP_PROP_FRAME_HEIGHT));
+
+            if (fps <= 0 || frame_count_ <= 0 || width <= 0 || height <= 0) {
                 return mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)
                     << "Fail to make video header due to the incorrect metadata from "
                     "the video file at "
@@ -134,8 +135,8 @@ class VideoDecoderCalculator : public mediapipe::CalculatorBase {
 
             auto header = absl::make_unique<mediapipe::VideoHeader>();
             header->format = format_;
-            header->width = width_;
-            header->height = height_;
+            header->width = width;
+            header->height = height;
             header->frame_rate = fps;
             header->duration = frame_count_ / fps;
 
@@ -151,41 +152,39 @@ class VideoDecoderCalculator : public mediapipe::CalculatorBase {
         }
 
         absl::Status Process(mediapipe::CalculatorContext* cc) override {
-            auto image_frame = absl::make_unique<mediapipe::ImageFrame>(format_, width_, height_, /*alignment_boundary=*/1);
+            std::unique_ptr<mediapipe::ImageFrame> image_frame;
 
             bool no_more_frames = false;
+
             // Use microsecond as the unit of time.
             mediapipe::Timestamp timestamp(cap_->get(cv::CAP_PROP_POS_MSEC) * 1000);
-            if (format_ == mediapipe::ImageFormat::GRAY8) {
-                cv::Mat frame = mediapipe::formats::MatView(image_frame.get());
-                ReadFrame(frame);
-                if (frame.empty()) {
-                    no_more_frames = true;
-                }
-            } else {
-                cv::Mat tmp_frame;
-                ReadFrame(tmp_frame);
-                if (tmp_frame.empty()) {
-                    no_more_frames = true;
-                } else {
-                    if (format_ == mediapipe::ImageFormat::SRGB) {
-                        cv::cvtColor(tmp_frame, mediapipe::formats::MatView(image_frame.get()), cv::COLOR_BGR2RGB);
-                    } else if (format_ == mediapipe::ImageFormat::SRGBA) {
-                        cv::cvtColor(tmp_frame, mediapipe::formats::MatView(image_frame.get()), cv::COLOR_BGRA2RGBA);
-                    }
-                }
-            }
 
-            if (no_more_frames) {
-                // send empty frame to signal end of video
+            cv::Mat tmp_frame;
+            ReadFrame(tmp_frame);
+            int frame_width = tmp_frame.size().width;
+            int frame_height = tmp_frame.size().height;
+
+            if (tmp_frame.empty()) {
+                no_more_frames = true;
+
                 timestamp = prev_timestamp_ + 1;
                 auto image_frame = absl::make_unique<mediapipe::ImageFrame>();
                 cc->Outputs().Tag(kVideoTag).Add(image_frame.release(), timestamp);
                 prev_timestamp_ = timestamp;
                 return mediapipe::tool::StatusStop();
             } else {
-                // If the timestamp of the current frame is not greater than the one of the
-                // previous frame, the new frame will be discarded.
+                if (format_ == mediapipe::ImageFormat::GRAY8) {
+                    image_frame = absl::make_unique<mediapipe::ImageFrame>(mediapipe::ImageFormat::GRAY8, frame_width, frame_height, /*alignment_boundary=*/1);
+                    tmp_frame.copyTo(mediapipe::formats::MatView(image_frame.get()));
+                } else {
+                    image_frame = absl::make_unique<mediapipe::ImageFrame>(format_, frame_width, frame_height, /*alignment_boundary=*/1);
+                    if (format_ == mediapipe::ImageFormat::SRGB) {
+                        cv::cvtColor(tmp_frame, mediapipe::formats::MatView(image_frame.get()), cv::COLOR_BGR2RGB);
+                    } else if (format_ == mediapipe::ImageFormat::SRGBA) {
+                        cv::cvtColor(tmp_frame, mediapipe::formats::MatView(image_frame.get()), cv::COLOR_BGRA2RGBA);
+                    }
+                }
+
                 if (prev_timestamp_ < timestamp) {
                     cc->Outputs().Tag(kVideoTag).Add(image_frame.release(), timestamp);
                     prev_timestamp_ = timestamp;
@@ -209,8 +208,6 @@ class VideoDecoderCalculator : public mediapipe::CalculatorBase {
 
         // Sometimes an empty frame is returned even though there are more frames.
         void ReadFrame(cv::Mat& frame) {
-            assert(width_ == static_cast<int>(cap_->get(cv::CAP_PROP_FRAME_WIDTH)));
-            assert(height_ = static_cast<int>(cap_->get(cv::CAP_PROP_FRAME_HEIGHT)));
             cap_->read(frame);
             if (frame.empty()) {
                 cap_->read(frame);  // Try again.
@@ -219,8 +216,6 @@ class VideoDecoderCalculator : public mediapipe::CalculatorBase {
 
     private:
         std::unique_ptr<cv::VideoCapture> cap_;
-        int width_;
-        int height_;
         int frame_count_;
         int decoded_frames_ = 0;
         mediapipe::ImageFormat::Format format_;
