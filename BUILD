@@ -17,6 +17,7 @@ refresh_compile_commands(
 #       "//examples:simple_tflite_interpreter": "",
 #       "//examples:dataset_from_other_models": "",
         "//examples:hello_faiss": "",
+        "//examples:image_similarity": "",
     },
 )
 
