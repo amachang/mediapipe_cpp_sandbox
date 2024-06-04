@@ -4,15 +4,19 @@ refresh_compile_commands(
     name = "refresh_compile_commands",
 
     targets = {
-      "//examples:hello_world": "",
-      "//examples:face_mesh": "",
-      "//examples:face_mesh_async": "",
-      "//examples:crop_human": "",
-      "//examples:use_custom_calculator": "",
-      "//examples:image_classification": "",
-      "//examples:hello_inja": "",
-      "//examples:hello_sdl2": "",
-      "//calculators:calculators": "",
+#       "//examples:hello_world": "",
+#       "//examples:face_mesh": "",
+#       "//examples:face_mesh_async": "",
+#       "//examples:crop_human": "",
+#       "//examples:use_custom_calculator": "",
+#       "//examples:image_classification": "",
+#       "//examples:hello_inja": "",
+#       "//examples:hello_sdl2": "",
+#       "//calculators:calculators": "",
+#       "//examples:video_size_transformation": "",
+#       "//examples:simple_tflite_interpreter": "",
+#       "//examples:dataset_from_other_models": "",
+        "//examples:hello_faiss": "",
     },
 )
 
@@ -46,6 +50,25 @@ cc_library(
         "-framework Carbon",
         "-framework Metal",
         "-framework AppKit",
+    ],
+)
+
+cmake(
+    name = "faiss",
+    lib_source = "@faiss//:all",
+    out_static_libs = ["libfaiss.a"],
+    visibility = ["//visibility:public"],
+    generate_args = [
+        "-G Ninja",
+        "-DFAISS_ENABLE_GPU=OFF",
+        "-DFAISS_ENABLE_PYTHON=OFF",
+        # disable test
+        "-DBUILD_TESTING=OFF",
+
+        # XXX it only works with my env
+        "-DOpenMP_CXX_FLAGS=\"-Xpreprocessor -fopenmp -I/usr/local/opt/libomp/include\"",
+        "-DOpenMP_CXX_LIB_NAMES=omp",
+        "-DOpenMP_omp_LIBRARY=/usr/local/opt/libomp/lib/libomp.dylib",
     ],
 )
 

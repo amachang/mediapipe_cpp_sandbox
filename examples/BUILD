@@ -236,3 +236,18 @@ cc_binary(
     ]
 )
 
+cc_binary(
+    name = "hello_faiss",
+    srcs = ["hello_faiss.cc"],
+    deps = [
+        "//:faiss",
+    ],
+    linkopts = [
+        # XXX I've gave up to build these libraries with Bazel.
+        # I think it works only my environment.
+        "-L/usr/local/opt/libomp/lib",
+        "-L/usr/local/opt/openblas/lib",
+        "-lomp",
+        "-lopenblas",
+    ],
+)

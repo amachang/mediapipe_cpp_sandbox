@@ -83,6 +83,16 @@ http_archive(
     ],
 )
 
+# faiss
+http_archive(
+    name = "faiss",
+    build_file_content = all_content,
+    strip_prefix = "faiss-1.8.0",
+    urls = [
+        "https://github.com/facebookresearch/faiss/archive/refs/tags/v1.8.0.tar.gz",
+    ],
+)
+
 # Mediapipe
 http_archive(
     name = "mediapipe",
