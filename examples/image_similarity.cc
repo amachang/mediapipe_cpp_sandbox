@@ -18,6 +18,8 @@ ABSL_FLAG(std::string, image1_path, "", "image1 path");
 ABSL_FLAG(std::string, image2_path, "", "model path");
 
 int main(int argc, char** argv) {
+    assert(sizeof(float) == 4); // float should be 4 bytes. prerequisite for mediapipe
+
     google::InitGoogleLogging(argv[0]);
 
     absl::ParseCommandLine(argc, argv);
@@ -84,20 +86,23 @@ int main(int argc, char** argv) {
         LOG(ERROR) << "Failed to embed image: " << result1_or_status.status();
         return EXIT_FAILURE;
     }
-    std::cout << "Image1 embedded: " << result1_or_status.value().embeddings.size() << std::endl;
+    const mediapipe::tasks::components::containers::EmbeddingResult& result1 = result1_or_status.value();
+    assert(result1.embeddings.size() == 1);
+    mediapipe::tasks::components::containers::Embedding embedding1 = result1.embeddings[0];
+    std::cout << "Image1 embedded: " << embedding1.float_embedding.size() << std::endl;
 
     const absl::StatusOr<mediapipe::tasks::components::containers::EmbeddingResult> result2_or_status = image_embedder->Embed(image2);
     if (!result2_or_status.ok()) {
         LOG(ERROR) << "Failed to embed image: " << result2_or_status.status();
         return EXIT_FAILURE;
     }
-    std::cout << "Image2 embedded: " << result2_or_status.value().embeddings.size() << std::endl;
-
-    const mediapipe::tasks::components::containers::EmbeddingResult& result1 = result1_or_status.value();
     const mediapipe::tasks::components::containers::EmbeddingResult& result2 = result2_or_status.value();
+    assert(result2.embeddings.size() == 1);
+    mediapipe::tasks::components::containers::Embedding embedding2 = result2.embeddings[0];
+    std::cout << "Image2 embedded: " << embedding2.float_embedding.size() << std::endl;
 
     // Compute cosine similarity.
-    absl::StatusOr<double> similarity_or_status = mediapipe::tasks::vision::image_embedder::ImageEmbedder::CosineSimilarity(result1.embeddings[0], result2.embeddings[0]);
+    absl::StatusOr<double> similarity_or_status = mediapipe::tasks::vision::image_embedder::ImageEmbedder::CosineSimilarity(embedding1, embedding2);
     if (!similarity_or_status.ok()) {
         LOG(ERROR) << "Failed to compute cosine similarity: " << similarity_or_status.status();
         return EXIT_FAILURE;
