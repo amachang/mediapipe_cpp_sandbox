@@ -267,6 +267,7 @@ cc_binary(
     srcs=["faiss_cosine_similarity_search.cc"],
     deps=[
         "//:faiss",
+        "@sqlite//:sqlite3",
         "@com_google_absl//absl/status:status",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/flags:parse",
