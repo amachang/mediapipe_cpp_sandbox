@@ -16,8 +16,9 @@ refresh_compile_commands(
 #       "//examples:video_size_transformation": "",
 #       "//examples:simple_tflite_interpreter": "",
 #       "//examples:dataset_from_other_models": "",
-        "//examples:hello_faiss": "",
-        "//examples:image_similarity": "",
+#        "//examples:hello_faiss": "",
+#        "//examples:image_similarity": "",
+        "//examples:faiss_cosine_similarity_search": "",
     },
 )
 
@@ -70,6 +71,12 @@ cmake(
         "-DOpenMP_CXX_FLAGS=\"-Xpreprocessor -fopenmp -I/usr/local/opt/libomp/include\"",
         "-DOpenMP_CXX_LIB_NAMES=omp",
         "-DOpenMP_omp_LIBRARY=/usr/local/opt/libomp/lib/libomp.dylib",
+    ],
+    linkopts = [
+        "-L/usr/local/opt/libomp/lib",
+        "-L/usr/local/opt/openblas/lib",
+        "-lomp",
+        "-lopenblas",
     ],
 )
 

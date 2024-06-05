@@ -242,20 +242,31 @@ cc_binary(
     deps = [
         "//:faiss",
     ],
-    linkopts = [
-        # XXX I've gave up to build these libraries with Bazel.
-        # I think it works only my environment.
-        "-L/usr/local/opt/libomp/lib",
-        "-L/usr/local/opt/openblas/lib",
-        "-lomp",
-        "-lopenblas",
-    ],
 )
 
 cc_binary(
     name="image_similarity",
     srcs=["image_similarity.cc"],
     deps=[
+        "@com_google_absl//absl/status:status",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:parse",
+        "@com_google_absl//absl/log:absl_log",
+        "@mediapipe//mediapipe/util/frame_buffer:frame_buffer_util",
+        "@mediapipe//mediapipe/framework/port:status",
+        "@mediapipe//mediapipe/tasks/cc/vision/image_embedder:image_embedder",
+        "@mediapipe//mediapipe/framework/formats:image_frame_opencv",
+        "@mediapipe//mediapipe/framework/port:file_helpers",
+        "@mediapipe//mediapipe/framework/port:opencv_highgui",
+        "@mediapipe//mediapipe/framework/port:opencv_imgproc",
+    ],
+)
+
+cc_binary(
+    name="faiss_cosine_similarity_search",
+    srcs=["faiss_cosine_similarity_search.cc"],
+    deps=[
+        "//:faiss",
         "@com_google_absl//absl/status:status",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/flags:parse",
