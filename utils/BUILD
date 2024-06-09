@@ -1,6 +1,7 @@
 
 cc_library(
     name = "image_database",
+    srcs = ["image_database.cc"],
     hdrs = ["image_database.h"],
     deps = [
         "//:faiss",
