@@ -10,6 +10,7 @@
 #include <string>
 #include <memory>
 #include <algorithm>
+#include <tuple>
 
 #include "absl/flags/parse.h"
 #include "absl/flags/flag.h"
@@ -27,6 +28,7 @@
 
 #include <inja/inja.hpp>
 #include <sqlite3.h>
+#include "utils/image_database.h"
 
 struct pair_hash {
     template <class T1, class T2>
@@ -47,7 +49,19 @@ ABSL_FLAG(uint, model_input_width, 300, "video input width");
 ABSL_FLAG(uint, model_input_height, 300, "video input height");
 ABSL_FLAG(std::string, model_input_scale_mode, "FIT", "video input scale mode");
 ABSL_FLAG(double, capture_period, 5.0, "capture period");
-ABSL_FLAG(double, score_threshold, 0.8, "score threshold");
+ABSL_FLAG(double, similarity_threshold, 0.75, "similarity threshold");
+
+std::string score_to_label(double score) {
+    int i_score = static_cast<int>(score * 10);
+    std::string score_label = std::to_string(i_score);
+    if (i_score > 100) {
+        score_label = "99";
+    }
+    // pad with 0
+    int pad_len = std::max(0, 2 - static_cast<int>(score_label.size()));
+    score_label = std::string(pad_len, '0') + score_label;
+    return score_label;
+}
 
 absl::Status RunMediapipe(
         const std::filesystem::path& video_path, 
@@ -56,7 +70,7 @@ absl::Status RunMediapipe(
         const double capture_period,
         const std::pair<uint, uint> model_input_size,
         const std::string& model_input_scale_mode,
-        double score_threshold
+        const double similarity_threshold
         ) {
 
     uint model_input_width = model_input_size.first;
@@ -140,17 +154,52 @@ absl::Status RunMediapipe(
             }
         }
 
-        # Classify image
         node {
             calculator: "ToImageCalculator"
             input_stream: "IMAGE:square_input_image"
-            output_stream: "IMAGE:used_by_classifier_image"
+            output_stream: "IMAGE:image_used_by_vision_tasks"
         }
+
+        # Embed image
+        node {
+            calculator: "mediapipe.tasks.vision.image_embedder.ImageEmbedderGraph"
+            input_stream: "IMAGE:image_used_by_vision_tasks"
+            output_stream: "EMBEDDINGS:embeddings"
+            node_options {
+                [type.googleapis.com/mediapipe.tasks.vision.image_embedder.proto.ImageEmbedderGraphOptions] {
+                    base_options {
+                        model_asset {
+                            file_name: {{ image_database_model_path }}
+                        }
+                    }
+                    embedder_options {
+                        l2_normalize: true
+                    }
+                }
+            }
+        }
+
+        # Embedding similarity gate
+        node {
+            calculator: "SimilarImageGateCalculator"
+            input_stream: "EMBEDDINGS:embeddings"
+            input_stream: "image_used_by_vision_tasks"
+            input_stream: "cropped_image_stream"
+            output_stream: "EMBEDDINGS:gate_embeddings"
+            output_stream: "gated_image_used_by_vision_tasks"
+            output_stream: "gated_cropped_image_stream"
+            node_options: {
+                [type.googleapis.com/SimilarImageGateCalculatorOptions] {
+                    similarity_threshold: {{ similarity_threshold }}
+                }
+            }
+        }
+
+        # Classify image
         node {
             calculator: "mediapipe.tasks.vision.image_classifier.ImageClassifierGraph"
-            input_stream: "IMAGE:used_by_classifier_image"
-            output_stream: "CLASSIFICATIONS:classifications"
-            output_stream: "IMAGE:classified_image"
+            input_stream: "IMAGE:gated_image_used_by_vision_tasks"
+            output_stream: "CLASSIFICATIONS:gated_classifications"
             node_options: {
                 [type.googleapis.com/mediapipe.tasks.vision.image_classifier.proto.ImageClassifierGraphOptions] {
                     base_options: {
@@ -160,7 +209,6 @@ absl::Status RunMediapipe(
                     }
                     classifier_options: {
                         max_results: 1
-                        score_threshold: {{ score_threshold }}
                     }
                 }
             }
@@ -169,16 +217,20 @@ absl::Status RunMediapipe(
         # To callback
         node {
             calculator: "ToImageCalculator"
-            input_stream: "IMAGE:cropped_image_stream"
-            output_stream: "IMAGE:type_converted_image"
+            input_stream: "IMAGE:gated_cropped_image_stream"
+            output_stream: "IMAGE:gated_type_converted_image"
         }
         node {
-            calculator: "ClassificationImageGateCalculator"
-            input_stream: "CLASSIFICATIONS:classifications"
-            input_stream: "IMAGE:type_converted_image"
-            output_stream: "LABEL_SCORE_IMAGE:output_stream"
+            calculator: "DatasetCandidateGateCalculator"
+            input_stream: "EMBEDDINGS:gated_embeddings"
+            input_stream: "CLASSIFICATIONS:gated_classifications"
+            input_stream: "IMAGE:gated_type_converted_image"
+            output_stream: "LABEL_SCORE_EMBEDDING_IMAGE:output_stream"
         }
     )pb");
+
+    ImageDatabase &image_database = ImageDatabase::GetInstance();
+    std::filesystem::path image_database_model_path = image_database.GetModelPath();
 
     std::string calculator_graph_str = env.render(calculator_graph_template, {
             {"model_path", model_path.string()},
@@ -186,7 +238,8 @@ absl::Status RunMediapipe(
             {"model_input_width", std::to_string(model_input_width)},
             {"model_input_height", std::to_string(model_input_height)},
             {"model_input_scale_mode", model_input_scale_mode},
-            {"score_threshold", std::to_string(score_threshold)}
+            {"image_database_model_path", image_database_model_path.string()},
+            {"similarity_threshold", std::to_string(similarity_threshold)}
             });
     LOG(INFO) << "Calculator graph: " << calculator_graph_str;
     mediapipe::CalculatorGraphConfig config = mediapipe::ParseTextProtoOrDie<mediapipe::CalculatorGraphConfig>(calculator_graph_str);
@@ -199,18 +252,42 @@ absl::Status RunMediapipe(
     MP_RETURN_IF_ERROR(graph.ObserveOutputStream("output_stream", [&file_stem, &output_dir](const mediapipe::Packet& packet) {
                 const mediapipe::Timestamp& timestamp = packet.Timestamp();
                 const std::chrono::microseconds timestamp_us = std::chrono::microseconds(timestamp.Microseconds());
-                LOG(INFO) << "Received frame at " << timestamp.Microseconds();
 
-                std::pair<std::vector<std::pair<std::string, double>>, std::shared_ptr<const mediapipe::ImageFrame>> label_score_frame = packet.Get<std::pair<std::vector<std::pair<std::string, double>>, std::shared_ptr<const mediapipe::ImageFrame>>>();
-                std::vector<std::pair<std::string, double>> label_score_list = label_score_frame.first;
+                const std::tuple<std::vector<std::pair<std::string, double>>, std::vector<float>, std::shared_ptr<const mediapipe::ImageFrame>> &label_score_embedding_image = packet.Get<std::tuple<std::vector<std::pair<std::string, double>>, std::vector<float>, std::shared_ptr<const mediapipe::ImageFrame>>>();
+                std::vector<std::pair<std::string, double>> label_score_list = std::get<0>(label_score_embedding_image);
+
+                std::vector<float> embedding = std::get<1>(label_score_embedding_image);
+
+                std::string label;
                 if (label_score_list.empty()) {
                     LOG(INFO) << "No label found";
                     return absl::OkStatus();
-                }
-                std::pair<std::string, double> label_score = label_score_list[0];
-                std::string label = label_score.first;
+                } else if (label_score_list.size() == 1) {
+                    label = label_score_list[0].first + "_" + score_to_label(label_score_list[0].second);
+                } else {
+                    std::vector<std::pair<std::string, double>> ordered_label_score_list = label_score_list;
+                    std::sort(ordered_label_score_list.begin(), ordered_label_score_list.end(), [](const std::pair<std::string, double>& a, const std::pair<std::string, double>& b) {
+                        return a.second > b.second;
+                    });
+                    std::vector<std::string> label_components;
 
-                std::shared_ptr<const mediapipe::ImageFrame> frame = label_score_frame.second;
+                    for (const auto& label_score : ordered_label_score_list) {
+                        const std::string& label = label_score.first;
+                        label_components.push_back(label);
+
+                        const double score = label_score.second;
+                        LOG(INFO) << "Label: " << label_score.first << ", Score: " << label_score.second;
+
+                        // score to 0 - 9 labels
+                        label_components.push_back(score_to_label(score));
+                    }
+
+                    label = std::accumulate(std::next(label_components.begin()), label_components.end(), label_components[0], [](const std::string& a, const std::string& b) {
+                        return a + "_" + b;
+                    });
+                }
+
+                std::shared_ptr<const mediapipe::ImageFrame> frame = std::get<2>(label_score_embedding_image);
                 std::unique_ptr<cv::Mat> frame_mat(new cv::Mat(frame->Height(), frame->Width(), CV_8UC3));
                 if (frame_mat->channels() == 3) {
                     cv::cvtColor(mediapipe::formats::MatView(&*frame), *frame_mat, cv::COLOR_RGB2BGR);
@@ -227,6 +304,13 @@ absl::Status RunMediapipe(
                 std::filesystem::path output_path = output_dir / label / (file_stem + "_" + padded_timestamp_str + "_" + label + ".png");
 
                 cv::imwrite(output_path.string(), *frame_mat);
+
+                ImageDatabase &image_database = ImageDatabase::GetInstance();
+                absl::Status insertion_status = image_database.Insert(output_path, embedding);
+                if (!insertion_status.ok()) {
+                    LOG(ERROR) << "Insert Embedding Error: " << insertion_status.message();
+                    return insertion_status;
+                }
                 
                 return absl::OkStatus();
                 }));
@@ -292,6 +376,11 @@ absl::StatusOr<std::unique_ptr<sqlite3, decltype(&sqlite3_close)>> OpenDatabaseA
 int main(int argc, char* argv[]) {
     google::InitGoogleLogging(argv[0]);
 
+    // Initialize ImageDatabase singleton
+    std::filesystem::path image_database_model_path = "mobilenet_v3_large.tflite";
+    ImageDatabase::Initialize(image_database_model_path, 1280);
+    ImageDatabase &image_database = ImageDatabase::GetInstance();
+
     absl::ParseCommandLine(argc, argv);
     std::string video_dir_str = absl::GetFlag(FLAGS_video_dir);
     if (video_dir_str.empty()) {
@@ -326,12 +415,13 @@ int main(int argc, char* argv[]) {
         std::filesystem::create_directories(output_dir);
     }
 
+    double similarity_threshold = absl::GetFlag(FLAGS_similarity_threshold);
+
     uint model_input_width = absl::GetFlag(FLAGS_model_input_width);
     uint model_input_height = absl::GetFlag(FLAGS_model_input_height);
     std::pair<uint, uint> model_input_size(model_input_width, model_input_height);
     std::string model_input_scale_mode = absl::GetFlag(FLAGS_model_input_scale_mode);
     double capture_period = absl::GetFlag(FLAGS_capture_period);
-    double score_threshold = absl::GetFlag(FLAGS_score_threshold);
 
     absl::StatusOr<std::unique_ptr<sqlite3, decltype(&sqlite3_close)>> status_or_db = OpenDatabaseAndMigrateIfNeeded();
     if (!status_or_db.ok()) {
@@ -376,10 +466,9 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        absl::Status mediapipe_status = RunMediapipe(video_path, model_path, output_dir, capture_period, model_input_size, model_input_scale_mode, score_threshold);
+        absl::Status mediapipe_status = RunMediapipe(video_path, model_path, output_dir, capture_period, model_input_size, model_input_scale_mode, similarity_threshold);
         if (!mediapipe_status.ok()) {
-            LOG(ERROR) << "Error: " << mediapipe_status.message();
-            return EXIT_FAILURE;
+            LOG(WARNING) << "Mediapipe Process Failed, skip and next: " << mediapipe_status.message();
         }
 
         const char* insert_video_sql = "INSERT INTO video (path, done) VALUES (?, ?)";

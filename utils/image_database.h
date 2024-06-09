@@ -10,7 +10,7 @@
 
 class ImageDatabase {
 public:
-    static absl::Status Initialize(const std::string& model_path, uint64_t model_embedding_size);
+    static absl::Status Initialize(const std::filesystem::path& model_path, uint64_t model_embedding_size);
     static ImageDatabase& GetInstance();
     absl::Status Insert(const std::filesystem::path& image_path);
     absl::Status Insert(const std::filesystem::path& image_path, const std::vector<float>& embedding);
@@ -20,6 +20,7 @@ public:
     absl::StatusOr<std::vector<std::pair<std::filesystem::path, float>>> Search(const std::filesystem::path& image_path, uint64_t top_k);
     absl::StatusOr<std::vector<std::pair<std::filesystem::path, float>>> Search(const std::vector<float>& embeddings, uint64_t top_k);
     absl::StatusOr<std::vector<float>> Embed(const std::filesystem::path& image_path);
+    std::filesystem::path GetModelPath() const;
     static absl::StatusOr<std::unique_ptr<mediapipe::tasks::vision::image_embedder::ImageEmbedder>> LoadImageEmbedder(const std::filesystem::path& model_path);
     ImageDatabase(const ImageDatabase&) = delete;
     ImageDatabase& operator=(const ImageDatabase&) = delete;

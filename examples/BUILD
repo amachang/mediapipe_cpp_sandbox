@@ -213,6 +213,7 @@ cc_binary(
     name = "dataset_from_other_models",
     srcs = ["dataset_from_other_models.cc"],
     deps = [
+        "//utils:image_database",
         "//calculators:calculators",
         "@inja//:inja",
         "@sqlite//:sqlite3",
@@ -230,6 +231,7 @@ cc_binary(
         "@mediapipe//mediapipe/framework/port:opencv_video",
         "@mediapipe//mediapipe/framework/port:parse_text_proto",
         "@mediapipe//mediapipe/tasks/cc/vision/image_classifier:image_classifier",
+        "@mediapipe//mediapipe/tasks/cc/vision/image_embedder:image_embedder",
         "@mediapipe//mediapipe/tasks/cc/vision/face_detector:face_detector",
         "@mediapipe//mediapipe/calculators/image:image_cropping_calculator",
         "@mediapipe//mediapipe/calculators/core:split_vector_calculator",

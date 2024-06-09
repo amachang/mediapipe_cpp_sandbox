@@ -9,8 +9,8 @@
 #include <faiss/IndexFlat.h>
 #include "image_database.h"
 
-absl::Status ImageDatabase::Initialize(const std::string& model_path, uint64_t model_embedding_size) {
-    GetInstanceImpl(model_path, model_embedding_size);
+absl::Status ImageDatabase::Initialize(const std::filesystem::path& model_path, uint64_t model_embedding_size) {
+    GetInstanceImpl(model_path.string(), model_embedding_size);
 }
 
 ImageDatabase& ImageDatabase::GetInstance() {
@@ -217,6 +217,10 @@ absl::StatusOr<std::vector<float>> ImageDatabase::Embed(const std::filesystem::p
     const mediapipe::tasks::components::containers::EmbeddingResult& result = result_or_status.value();
     const std::vector<float> &embedding = result.embeddings[0].float_embedding;
     return embedding;
+}
+
+std::filesystem::path ImageDatabase::GetModelPath() const {
+    return std::filesystem::path(model_path_.value());
 }
 
 absl::StatusOr<std::unique_ptr<mediapipe::tasks::vision::image_embedder::ImageEmbedder>> ImageDatabase::LoadImageEmbedder(const std::filesystem::path& model_path) {

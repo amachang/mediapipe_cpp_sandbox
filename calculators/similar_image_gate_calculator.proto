@@ -1,0 +1,12 @@
+syntax = "proto2";
+
+import "mediapipe/framework/calculator.proto";
+
+message SimilarImageGateCalculatorOptions {
+  extend mediapipe.CalculatorOptions {
+    optional SimilarImageGateCalculatorOptions ext = 38456432;
+  }
+
+  required float similarity_threshold = 2;
+}
+

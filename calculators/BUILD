@@ -7,7 +7,9 @@ cc_library(
     deps = [
         ":detection_to_largest_square_rect_calculator",
         ":classification_image_gate_calculator",
+        ":dataset_candidate_gate_calculator",
         ":video_decoder_calculator",
+        ":similar_image_gate_calculator",
     ],
 )
 
@@ -60,3 +62,34 @@ cc_library(
     ],
     alwayslink = 1,
 )
+
+cc_library(
+    name = "dataset_candidate_gate_calculator",
+    srcs = ["dataset_candidate_gate_calculator.cc"],
+    deps = [
+        "@mediapipe//mediapipe/tasks/cc/components/containers:classification_result",
+        "@mediapipe//mediapipe/tasks/cc/components/containers:embedding_result",
+        "//utils:image_database",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "similar_image_gate_calculator",
+    srcs = ["similar_image_gate_calculator.cc"],
+    deps = [
+        "@mediapipe//mediapipe/tasks/cc/components/containers:embedding_result",
+        ":similar_image_gate_calculator_cc_proto",
+        "//utils:image_database",
+    ],
+    alwayslink = 1,
+)
+
+mediapipe_proto_library(
+    name = "similar_image_gate_calculator_proto",
+    srcs = ["similar_image_gate_calculator.proto"],
+    deps = [
+        "@mediapipe//mediapipe/framework:calculator_proto",
+    ],
+)
+

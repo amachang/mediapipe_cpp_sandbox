@@ -336,8 +336,8 @@ absl::Status Interpret(const std::filesystem::path& model_path, const std::files
     for (int i = 0; i < input_size[1]; i++) {
         for (int j = 0; j < input_size[2]; j++) {
             for (int k = 0; k < input_size[3]; k++) {
-                input_tensor.data.f[i * input_size[2] * input_size[3] + j * input_size[3] + k] = static_cast<float>(padded_resized_image.at<cv::Vec3b>(i, j)[k]) / 255.0;
-                // input_tensor.data.f[i * input_size[2] * input_size[3] + j * input_size[3] + k] = static_cast<float>(padded_resized_image.at<cv::Vec3b>(i, j)[k]);
+                // input_tensor.data.f[i * input_size[2] * input_size[3] + j * input_size[3] + k] = static_cast<float>(padded_resized_image.at<cv::Vec3b>(i, j)[k]) / 255.0;
+                input_tensor.data.f[i * input_size[2] * input_size[3] + j * input_size[3] + k] = static_cast<float>(padded_resized_image.at<cv::Vec3b>(i, j)[k]);
             }
         }
     }
