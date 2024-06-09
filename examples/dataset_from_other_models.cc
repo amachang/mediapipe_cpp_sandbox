@@ -169,7 +169,7 @@ absl::Status RunMediapipe(
                 [type.googleapis.com/mediapipe.tasks.vision.image_embedder.proto.ImageEmbedderGraphOptions] {
                     base_options {
                         model_asset {
-                            file_name: {{ image_database_model_path }}
+                            file_name: "{{ image_database_model_path }}"
                         }
                     }
                     embedder_options {
@@ -185,7 +185,7 @@ absl::Status RunMediapipe(
             input_stream: "EMBEDDINGS:embeddings"
             input_stream: "image_used_by_vision_tasks"
             input_stream: "cropped_image_stream"
-            output_stream: "EMBEDDINGS:gate_embeddings"
+            output_stream: "EMBEDDINGS:gated_embeddings"
             output_stream: "gated_image_used_by_vision_tasks"
             output_stream: "gated_cropped_image_stream"
             node_options: {

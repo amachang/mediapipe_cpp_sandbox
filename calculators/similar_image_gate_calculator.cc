@@ -26,10 +26,12 @@ class SimilarImageGateCalculator : public mediapipe::CalculatorBase {
             // input embeddings
             RET_CHECK(cc->Inputs().HasTag(kEmbeddingsTag));
             RET_CHECK_EQ(cc->Inputs().NumEntries(kEmbeddingsTag), 1);
+            cc->Inputs().Tag(kEmbeddingsTag).Set<mediapipe::tasks::components::containers::proto::EmbeddingResult>();
 
             // output embeddings
             RET_CHECK(cc->Outputs().HasTag(kEmbeddingsTag));
             RET_CHECK_EQ(cc->Outputs().NumEntries(kEmbeddingsTag), 1);
+            cc->Outputs().Tag(kEmbeddingsTag).Set<mediapipe::tasks::components::containers::proto::EmbeddingResult>();
 
             // unnamed input image
             const int num_data_streams = cc->Inputs().NumEntries("");

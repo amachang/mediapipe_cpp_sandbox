@@ -11,6 +11,7 @@
 
 absl::Status ImageDatabase::Initialize(const std::filesystem::path& model_path, uint64_t model_embedding_size) {
     GetInstanceImpl(model_path.string(), model_embedding_size);
+    return absl::OkStatus();
 }
 
 ImageDatabase& ImageDatabase::GetInstance() {
