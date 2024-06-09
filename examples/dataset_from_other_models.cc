@@ -49,7 +49,7 @@ ABSL_FLAG(uint, model_input_width, 300, "video input width");
 ABSL_FLAG(uint, model_input_height, 300, "video input height");
 ABSL_FLAG(std::string, model_input_scale_mode, "FIT", "video input scale mode");
 ABSL_FLAG(double, capture_period, 5.0, "capture period");
-ABSL_FLAG(double, similarity_threshold, 0.75, "similarity threshold");
+ABSL_FLAG(double, similarity_threshold, 0.7, "similarity threshold");
 
 std::string score_to_label(double score) {
     int i_score = static_cast<int>(score * 10);
@@ -117,7 +117,7 @@ absl::Status RunMediapipe(
                             file_name: "blaze_face_short_range.tflite"
                         }
                     }
-                    min_detection_confidence: 0.5
+                    min_detection_confidence: 0.7
                     num_faces: 1
                 }
             }

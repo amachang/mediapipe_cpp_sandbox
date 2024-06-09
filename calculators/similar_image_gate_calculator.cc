@@ -13,7 +13,7 @@ constexpr char kEmbeddingsTag[] = "EMBEDDINGS";
 
 class SimilarImageGateCalculator : public mediapipe::CalculatorBase {
     private:
-        float similarity_threshold_ = 0.8;
+        float similarity_threshold_ = 0.7;
 
         mediapipe::Status LoadOptions(mediapipe::CalculatorContext& cc) {
             const SimilarImageGateCalculatorOptions& options = cc.Options<SimilarImageGateCalculatorOptions>();
@@ -73,7 +73,7 @@ class SimilarImageGateCalculator : public mediapipe::CalculatorBase {
             }
             float similarity = similarity_or_status.value();
             if (similarity > similarity_threshold_) {
-                LOG(INFO) << "Almost Similar image found, skipping";
+                LOG(INFO) << "Almost Similar image found, skipping: similarity = " << similarity;
                 return mediapipe::OkStatus();
             }
 
