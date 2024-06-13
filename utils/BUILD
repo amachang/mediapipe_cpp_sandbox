@@ -1,3 +1,12 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "utils",
+    deps = [
+        ":recursive_dir_iter",
+        ":image_database",
+    ],
+)
 
 cc_library(
     name = "image_database",
@@ -12,6 +21,10 @@ cc_library(
         "@mediapipe//mediapipe/framework/formats:image_frame_opencv",
         "@mediapipe//mediapipe/framework/port:file_helpers",
     ],
-    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "recursive_dir_iter",
+    hdrs = ["recursive_dir_iter.h"],
 )
 
