@@ -333,11 +333,16 @@ absl::Status Interpret(const std::filesystem::path& model_path, const std::files
     cv::Rect roi((resized_size.width - new_size.width) / 2, (resized_size.height - new_size.height) / 2, new_size.width, new_size.height);
     resized_image.copyTo(padded_resized_image(roi));
 
+    cv::Mat rgb_image;
+    // cv::imshow("image", padded_resized_image);
+    // cv::waitKey(0);
+    cv::cvtColor(padded_resized_image, rgb_image, cv::COLOR_BGR2RGB);
+
     for (int i = 0; i < input_size[1]; i++) {
         for (int j = 0; j < input_size[2]; j++) {
             for (int k = 0; k < input_size[3]; k++) {
                 // input_tensor.data.f[i * input_size[2] * input_size[3] + j * input_size[3] + k] = static_cast<float>(padded_resized_image.at<cv::Vec3b>(i, j)[k]) / 255.0;
-                input_tensor.data.f[i * input_size[2] * input_size[3] + j * input_size[3] + k] = static_cast<float>(padded_resized_image.at<cv::Vec3b>(i, j)[k]);
+                input_tensor.data.f[i * input_size[2] * input_size[3] + j * input_size[3] + k] = static_cast<float>(rgb_image.at<cv::Vec3b>(i, j)[k]);
             }
         }
     }
