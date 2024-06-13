@@ -278,3 +278,34 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "rearrange_dataset_with_models",
+    srcs = ["rearrange_dataset_with_models.cc"],
+    deps = [
+        "//utils:image_database",
+        "//calculators:calculators",
+        "@inja//:inja",
+        "@sqlite//:sqlite3",
+        "@com_google_absl//absl/status:status",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:parse",
+        "@mediapipe//mediapipe/framework:calculator_framework",
+        "@mediapipe//mediapipe/framework/formats:image_frame",
+        "@mediapipe//mediapipe/framework/formats:image_frame_opencv",
+
+        # belows are rough added
+        "@mediapipe//mediapipe/calculators/image:image_transformation_calculator",
+        "@mediapipe//mediapipe/calculators/core:packet_thinner_calculator",
+        "@mediapipe//mediapipe/calculators/util:to_image_calculator",
+        "@mediapipe//mediapipe/framework/port:opencv_highgui",
+        "@mediapipe//mediapipe/framework/port:opencv_imgproc",
+        "@mediapipe//mediapipe/framework/port:opencv_video",
+        "@mediapipe//mediapipe/framework/port:parse_text_proto",
+        "@mediapipe//mediapipe/tasks/cc/vision/image_classifier:image_classifier",
+        "@mediapipe//mediapipe/tasks/cc/vision/image_embedder:image_embedder",
+        "@mediapipe//mediapipe/tasks/cc/vision/face_detector:face_detector",
+        "@mediapipe//mediapipe/calculators/image:image_cropping_calculator",
+        "@mediapipe//mediapipe/calculators/core:split_vector_calculator",
+    ]
+)
+

@@ -15,10 +15,12 @@ refresh_compile_commands(
 #       "//calculators:calculators": "",
 #       "//examples:video_size_transformation": "",
 #       "//examples:simple_tflite_interpreter": "",
-       "//examples:dataset_from_other_models": "",
+        "//examples:dataset_from_other_models": "",
 #       "//examples:hello_faiss": "",
 #       "//examples:image_similarity": "",
 #       "//examples:faiss_cosine_similarity_search": "",
+#       "//examples:faiss_indexing": "",
+        "//examples:rearrange_dataset_with_models": "",
     },
 )
 
