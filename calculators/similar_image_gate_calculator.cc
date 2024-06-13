@@ -57,6 +57,7 @@ class SimilarImageGateCalculator : public mediapipe::CalculatorBase {
                 // if embeddings or image is empty, nothing to do
                 return mediapipe::OkStatus();
             }
+            mediapipe::Timestamp timestamp = embeddings_packet.Timestamp();
 
             auto& embedding_result = embeddings_packet.Get<mediapipe::tasks::components::containers::proto::EmbeddingResult>();
             assert(embedding_result.embeddings_size() == 1);
@@ -75,6 +76,15 @@ class SimilarImageGateCalculator : public mediapipe::CalculatorBase {
             if (similarity > similarity_threshold_) {
                 LOG(INFO) << "Almost Similar image found, skipping: similarity = " << similarity;
                 return mediapipe::OkStatus();
+            }
+
+            // make random unique output path
+            srand(time(NULL));
+            std::string output_path = "dummy_" + timestamp.DebugString() + "_" + std::to_string(rand()) + ".png";
+            absl::Status insertion_status = image_database.Insert(output_path, embedding);
+            if (!insertion_status.ok()) {
+                LOG(ERROR) << "Insert Embedding Error: " << insertion_status.message();
+                return mediapipe::InternalError("Image database insertion error: " + std::string(insertion_status.message()));
             }
 
             // forward embeddings

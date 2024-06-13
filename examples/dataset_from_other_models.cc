@@ -11,6 +11,7 @@
 #include <memory>
 #include <algorithm>
 #include <tuple>
+#include <regex>
 
 #include "absl/flags/parse.h"
 #include "absl/flags/flag.h"
@@ -44,6 +45,7 @@ int window_width = 800;
 ABSL_FLAG(std::string, video_dir, "", "video dir");
 ABSL_FLAG(std::string, model_path, "", "model path");
 ABSL_FLAG(std::string, output_dir, "", "output dir");
+ABSL_FLAG(std::string, filename_regex, ".*", "filename regex");
 
 ABSL_FLAG(uint, model_input_width, 300, "video input width");
 ABSL_FLAG(uint, model_input_height, 300, "video input height");
@@ -305,13 +307,6 @@ absl::Status RunMediapipe(
 
                 cv::imwrite(output_path.string(), *frame_mat);
 
-                ImageDatabase &image_database = ImageDatabase::GetInstance();
-                absl::Status insertion_status = image_database.Insert(output_path, embedding);
-                if (!insertion_status.ok()) {
-                    LOG(ERROR) << "Insert Embedding Error: " << insertion_status.message();
-                    return insertion_status;
-                }
-                
                 return absl::OkStatus();
                 }));
 
@@ -373,13 +368,27 @@ absl::StatusOr<std::unique_ptr<sqlite3, decltype(&sqlite3_close)>> OpenDatabaseA
     return std::move(db);
 }
 
+absl::Status CollectFilePathsRecursively(const std::filesystem::path& dir, std::vector<std::filesystem::path>& paths) {
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+        const std::filesystem::path& path = entry.path();
+        if (std::filesystem::is_directory(path)) {
+            absl::Status status = CollectFilePathsRecursively(path, paths);
+            if (!status.ok()) {
+                return status;
+            }
+        } else {
+            paths.push_back(path);
+        }
+    }
+    return absl::OkStatus();
+}
+
 int main(int argc, char* argv[]) {
     google::InitGoogleLogging(argv[0]);
 
     // Initialize ImageDatabase singleton
     std::filesystem::path image_database_model_path = "mobilenet_v3_large.tflite";
-    ImageDatabase::Initialize(image_database_model_path, 1280);
-    ImageDatabase &image_database = ImageDatabase::GetInstance();
+    uint64_t image_database_embedding_size = 1280;
 
     absl::ParseCommandLine(argc, argv);
     std::string video_dir_str = absl::GetFlag(FLAGS_video_dir);
@@ -392,7 +401,6 @@ int main(int argc, char* argv[]) {
         LOG(ERROR) << "Video dir does not exist";
         return EXIT_FAILURE;
     }
-
 
     std::string model_path_str = absl::GetFlag(FLAGS_model_path);
     if (model_path_str.empty()) {
@@ -415,6 +423,13 @@ int main(int argc, char* argv[]) {
         std::filesystem::create_directories(output_dir);
     }
 
+    std::string filename_regex_str = absl::GetFlag(FLAGS_filename_regex);
+    if (filename_regex_str.empty()) {
+        LOG(ERROR) << "Please specify filename regex with --filename_regex flag";
+        return EXIT_FAILURE;
+    }
+    std::regex filename_regex(filename_regex_str);
+
     double similarity_threshold = absl::GetFlag(FLAGS_similarity_threshold);
 
     uint model_input_width = absl::GetFlag(FLAGS_model_input_width);
@@ -430,13 +445,31 @@ int main(int argc, char* argv[]) {
     }
     std::unique_ptr<sqlite3, decltype(&sqlite3_close)> db = std::move(status_or_db.value());
 
-    for (const auto& entry : std::filesystem::directory_iterator(video_dir)) {
-        std::filesystem::path video_path = entry.path();
-        LOG(INFO) << "Processing video: " << video_path;
 
+    LOG(INFO) << "Initializing ImageDatabase";
+    ImageDatabase::Initialize(image_database_model_path, image_database_embedding_size);
+    ImageDatabase &image_database = ImageDatabase::GetInstance();
+    LOG(INFO) << "ImageDatabase Initialized";
+
+    LOG(INFO) << "Collecting file paths";
+    std::vector<std::filesystem::path> video_paths;
+    absl::Status path_collection_status = CollectFilePathsRecursively(video_dir, video_paths);
+    if (!path_collection_status.ok()) {
+        LOG(ERROR) << "Error: " << path_collection_status.message();
+        return EXIT_FAILURE;
+    }
+    LOG(INFO) << "Collected " << video_paths.size() << " file paths";
+
+    for (const std::filesystem::path& video_path : video_paths) {
         std::string extension = video_path.extension().string();
         if (extension != ".mp4" && extension != ".avi" && extension != ".mov" && extension != ".mkv" && extension != ".flv" && extension != ".webm" && extension != ".wmv") {
-            LOG(INFO) << "Skipping video: " << video_path;
+            LOG(INFO) << "Skipping non video extention: " << video_path;
+            continue;
+        }
+
+        std::string filename = video_path.filename().string();
+        if (!std::regex_match(filename, filename_regex)) {
+            LOG(INFO) << "Skipping filename not matched pattern: " << filename_regex_str << " (" << video_path << ")";
             continue;
         }
 
@@ -465,6 +498,8 @@ int main(int argc, char* argv[]) {
                 continue;
             }
         }
+
+        LOG(INFO) << "Processing video: " << video_path;
 
         absl::Status mediapipe_status = RunMediapipe(video_path, model_path, output_dir, capture_period, model_input_size, model_input_scale_mode, similarity_threshold);
         if (!mediapipe_status.ok()) {
