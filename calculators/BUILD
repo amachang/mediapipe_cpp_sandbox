@@ -10,6 +10,7 @@ cc_library(
         ":dataset_candidate_gate_calculator",
         ":video_decoder_calculator",
         ":similar_image_gate_calculator",
+        ":decode_image_dir_calculator",
     ],
 )
 
@@ -69,7 +70,7 @@ cc_library(
     deps = [
         "@mediapipe//mediapipe/tasks/cc/components/containers:classification_result",
         "@mediapipe//mediapipe/tasks/cc/components/containers:embedding_result",
-        "//utils:image_database",
+        "//utils:utils",
     ],
     alwayslink = 1,
 )
@@ -80,7 +81,7 @@ cc_library(
     deps = [
         "@mediapipe//mediapipe/tasks/cc/components/containers:embedding_result",
         ":similar_image_gate_calculator_cc_proto",
-        "//utils:image_database",
+        "//utils:utils",
     ],
     alwayslink = 1,
 )
@@ -93,3 +94,18 @@ mediapipe_proto_library(
     ],
 )
 
+cc_library(
+    name = "decode_image_dir_calculator",
+    srcs = ["decode_image_dir_calculator.cc"],
+    deps = [
+        "@mediapipe//mediapipe/framework:calculator_framework",
+        "@mediapipe//mediapipe/framework/formats:image_format_cc_proto",
+        "@mediapipe//mediapipe/framework/formats:image_frame",
+        "@mediapipe//mediapipe/framework/formats:image_frame_opencv",
+        "@mediapipe//mediapipe/framework/port:opencv_imgproc",
+        "@mediapipe//mediapipe/framework/port:opencv_imgcodecs",
+        "@mediapipe//mediapipe/framework/port:opencv_video",
+        "//utils:utils",
+    ],
+    alwayslink = 1,
+)
