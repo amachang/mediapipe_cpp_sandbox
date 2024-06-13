@@ -8,9 +8,11 @@
 #include <sqlite3.h>
 #include <faiss/IndexFlat.h>
 
+static const std::filesystem::path default_db_path_ = "unportable_image_database.db";
+
 class ImageDatabase {
 public:
-    static absl::Status Initialize(const std::filesystem::path& model_path, uint64_t model_embedding_size);
+    static absl::Status Initialize(const std::filesystem::path& model_path, uint64_t model_embedding_size, std::filesystem::path db_path = default_db_path_);
     static ImageDatabase& GetInstance();
     absl::Status Insert(const std::filesystem::path& image_path);
     absl::Status Insert(const std::filesystem::path& image_path, const std::vector<float>& embedding);
@@ -26,10 +28,10 @@ public:
     ImageDatabase& operator=(const ImageDatabase&) = delete;
 
 private:
-    const std::filesystem::path db_path_ = "unportable_image_database.db";
 
     std::mutex mutex_;
     std::optional<std::string> model_path_;
+    std::optional<std::filesystem::path> db_path_;
     std::optional<uint64_t> model_embedding_size_;
     std::optional<faiss::IndexFlatIP> faiss_index_;
     std::unordered_map<faiss::idx_t, uint64_t> faiss_id_to_db_id_;
@@ -39,7 +41,7 @@ private:
     std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> select_stmt_;
     std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> select_by_path_stmt_;
 
-    static ImageDatabase& GetInstanceImpl(const std::optional<std::string>& model_path, std::optional<uint64_t> model_embedding_size);
-    ImageDatabase(const std::optional<std::string>& model_path_opt, std::optional<uint64_t> model_embedding_size_opt);
+    static ImageDatabase& GetInstanceImpl(const std::optional<std::string>& model_path, std::optional<uint64_t> model_embedding_size, std::optional<std::filesystem::path> db_path);
+    ImageDatabase(const std::optional<std::string>& model_path_opt, std::optional<uint64_t> model_embedding_size_opt, std::optional<std::filesystem::path> db_path);
 };
 

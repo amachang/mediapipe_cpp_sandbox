@@ -9,14 +9,14 @@
 #include <faiss/IndexFlat.h>
 #include "image_database.h"
 
-absl::Status ImageDatabase::Initialize(const std::filesystem::path& model_path, uint64_t model_embedding_size) {
-    GetInstanceImpl(model_path.string(), model_embedding_size);
+absl::Status ImageDatabase::Initialize(const std::filesystem::path& model_path, uint64_t model_embedding_size, std::filesystem::path db_path) {
+    GetInstanceImpl(model_path.string(), model_embedding_size, db_path);
     return absl::OkStatus();
 }
 
 ImageDatabase& ImageDatabase::GetInstance() {
     // When calling after Initialize, model_path and model_embedding_size are ignored because they are already set
-    return GetInstanceImpl(std::nullopt, std::nullopt);
+    return GetInstanceImpl(std::nullopt, std::nullopt, std::nullopt);
 }
 
 absl::Status ImageDatabase::Insert(const std::filesystem::path& image_path) {
@@ -236,14 +236,15 @@ absl::StatusOr<std::unique_ptr<mediapipe::tasks::vision::image_embedder::ImageEm
     return std::move(image_embedder_or_status.value());
 }
 
-ImageDatabase& ImageDatabase::GetInstanceImpl(const std::optional<std::string>& model_path, std::optional<uint64_t> model_embedding_size) {
-    static ImageDatabase instance(model_path, model_embedding_size);
+ImageDatabase& ImageDatabase::GetInstanceImpl(const std::optional<std::string>& model_path, std::optional<uint64_t> model_embedding_size, std::optional<std::filesystem::path> db_path) {
+    static ImageDatabase instance(model_path, model_embedding_size, db_path);
     return instance;
 }
 
-ImageDatabase::ImageDatabase(const std::optional<std::string>& model_path_opt, std::optional<uint64_t> model_embedding_size_opt) :
+ImageDatabase::ImageDatabase(const std::optional<std::string>& model_path_opt, std::optional<uint64_t> model_embedding_size_opt, std::optional<std::filesystem::path> db_path_opt) :
     model_path_(model_path_opt),
     model_embedding_size_(model_embedding_size_opt),
+    db_path_(db_path_opt),
     faiss_index_(std::nullopt),
     faiss_id_to_db_id_(),
     image_embedder_(nullptr),
@@ -258,6 +259,10 @@ ImageDatabase::ImageDatabase(const std::optional<std::string>& model_path_opt, s
     if (!model_embedding_size_) {
         throw std::runtime_error("ImageDatabase: model_embedding_size uninitialized");
     }
+    if (!db_path_) {
+        db_path_ = default_db_path_;
+    }
+    std::string db_path_str = db_path_->string();
 
     faiss_index_.emplace(model_embedding_size_.value());
 
@@ -270,7 +275,7 @@ ImageDatabase::ImageDatabase(const std::optional<std::string>& model_path_opt, s
 
     // Open database
     sqlite3* db = nullptr;
-    int rc = sqlite3_open(db_path_.c_str(), &db);
+    int rc = sqlite3_open(db_path_str.c_str(), &db);
     if (rc != SQLITE_OK) {
         throw std::runtime_error("Failed to open database");
     }
