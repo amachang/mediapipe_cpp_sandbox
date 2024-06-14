@@ -21,6 +21,7 @@ refresh_compile_commands(
 #       "//examples:faiss_cosine_similarity_search": "",
 #       "//examples:faiss_indexing": "",
         "//examples:rearrange_dataset_with_models": "",
+        "//examples:debug_scores_for_models": "",
     },
 )
 
