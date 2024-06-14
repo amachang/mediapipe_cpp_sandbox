@@ -321,7 +321,12 @@ absl::Status Interpret(const std::filesystem::path& model_path, const std::files
     cv::Mat image = cv::imread(image_path.string());
     ABSL_CHECK(!image.empty());
 
-    cv::Size resized_size(input_size[2], input_size[1]);
+    assert(input_size[0] == 1);
+    int rows = input_size[1];
+    int cols = input_size[2];
+    int channels = input_size[3];
+    cv::Size resized_size(cols, rows);
+
     double width_ratio = static_cast<double>(resized_size.width) / image.cols;
     double height_ratio = static_cast<double>(resized_size.height) / image.rows;
     bool width_longer = width_ratio > height_ratio;
@@ -338,11 +343,12 @@ absl::Status Interpret(const std::filesystem::path& model_path, const std::files
     // cv::waitKey(0);
     cv::cvtColor(padded_resized_image, rgb_image, cv::COLOR_BGR2RGB);
 
-    for (int i = 0; i < input_size[1]; i++) {
-        for (int j = 0; j < input_size[2]; j++) {
-            for (int k = 0; k < input_size[3]; k++) {
-                // input_tensor.data.f[i * input_size[2] * input_size[3] + j * input_size[3] + k] = static_cast<float>(padded_resized_image.at<cv::Vec3b>(i, j)[k]) / 255.0;
-                input_tensor.data.f[i * input_size[2] * input_size[3] + j * input_size[3] + k] = static_cast<float>(rgb_image.at<cv::Vec3b>(i, j)[k]);
+    // index 1 is height/rows index (y)
+    for (int y = 0; y < rows; y++) {
+        // index 2 is width/cols index (x)
+        for (int x = 0; x < cols; x++) {
+            for (int c = 0; c < channels; c++) {
+                input_tensor.data.f[y * cols * channels + x * c + c] = static_cast<float>(rgb_image.at<cv::Vec3b>(y, x)[c]);
             }
         }
     }
