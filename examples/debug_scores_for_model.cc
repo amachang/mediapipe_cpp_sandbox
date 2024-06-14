@@ -11,6 +11,7 @@
 #include <inja/inja.hpp>
 
 #include "mediapipe/framework/calculator_framework.h"
+#include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
@@ -22,6 +23,7 @@
 ABSL_FLAG(std::string, model_path, "", "model path");
 ABSL_FLAG(std::string, image_path, "", "image path");
 
+const char kImageTag[] = "IMAGE";
 const char kImagePathTag[] = "IMAGE_PATH";
 const char kRgbImageFrameTag[] = "RGB_IMAGE_FRAME";
 const char kClassificationsTag[] = "CLASSIFICATIONS";
@@ -78,6 +80,7 @@ REGISTER_CALCULATOR(ReadSingleImageCalculator);
 class ClassificationsPrinterCalculator : public mediapipe::CalculatorBase {
     public:
         static mediapipe::Status GetContract(mediapipe::CalculatorContract* cc) {
+            cc->Inputs().Tag(kImageTag).Set<mediapipe::Image>();
             cc->Inputs().Tag(kClassificationsTag).Set<mediapipe::tasks::components::containers::proto::ClassificationResult>();
             RET_CHECK_EQ(cc->Inputs().NumEntries(kClassificationsTag), 1);
             return mediapipe::OkStatus();
@@ -88,6 +91,31 @@ class ClassificationsPrinterCalculator : public mediapipe::CalculatorBase {
         }
 
         mediapipe::Status Process(mediapipe::CalculatorContext* cc) override {
+            const mediapipe::Image& image = cc->Inputs().Tag(kImageTag).Get<mediapipe::Image>();
+            const auto& image_frame = image.GetImageFrameSharedPtr();
+            int width = image_frame->Width();
+            int height = image_frame->Height();
+
+            std::cout << "Classifier Out Image: " << width << "x" << height << std::endl;
+
+            // mean stddev
+            const cv::Mat mat = mediapipe::formats::MatView(image_frame.get());
+            cv::Scalar mean, stddev;
+            cv::meanStdDev(mat, mean, stddev);
+            std::cout << "Classifier Out Image Value Mean: " << mean << std::endl;
+            std::cout << "Classifier Out Image Value Stddev: " << stddev << std::endl;
+
+            // min max
+            double min, max;
+            cv::minMaxLoc(mat, &min, &max);
+            std::cout << "Classifier Out Image Value Min: " << min << std::endl;
+            std::cout << "Classifier Out Image Value Max: " << max << std::endl;
+
+            const std::string nanosec_id = std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+            std::string filename = "classifier_out_image" + std::to_string(width) + "x" + std::to_string(height) + "_" + nanosec_id + ".png";
+
+            cv::imwrite(filename, mat);
+
             const auto& classification_result = cc->Inputs().Tag(kClassificationsTag).Get<mediapipe::tasks::components::containers::proto::ClassificationResult>();
             for (const auto& classifications : classification_result.classifications()) {
                 const auto num_classifications = classifications.classification_list().classification_size();
@@ -101,7 +129,52 @@ class ClassificationsPrinterCalculator : public mediapipe::CalculatorBase {
 
 REGISTER_CALCULATOR(ClassificationsPrinterCalculator);
 
-absl::Status RunCase0(const std::filesystem::path& model_path, const std::filesystem::path& image_path) {
+class ImagePrinterCalculator : public mediapipe::CalculatorBase {
+    public:
+        static mediapipe::Status GetContract(mediapipe::CalculatorContract* cc) {
+            cc->Inputs().Tag(kImageTag).Set<mediapipe::Image>();
+            RET_CHECK_EQ(cc->Inputs().NumEntries(kImageTag), 1);
+
+            return mediapipe::OkStatus();
+        }
+
+        mediapipe::Status Open(mediapipe::CalculatorContext* cc) override {
+            return mediapipe::OkStatus();
+        }
+
+        mediapipe::Status Process(mediapipe::CalculatorContext* cc) override {
+            const mediapipe::Image& image = cc->Inputs().Tag(kImageTag).Get<mediapipe::Image>();
+            const auto& image_frame = image.GetImageFrameSharedPtr();
+            int width = image_frame->Width();
+            int height = image_frame->Height();
+
+            std::cout << "Image: " << width << "x" << height << std::endl;
+
+            // mean stddev
+            const cv::Mat mat = mediapipe::formats::MatView(image_frame.get());
+            cv::Scalar mean, stddev;
+            cv::meanStdDev(mat, mean, stddev);
+            std::cout << "Image Value Mean: " << mean << std::endl;
+            std::cout << "Image Value Stddev: " << stddev << std::endl;
+
+            // min max
+            double min, max;
+            cv::minMaxLoc(mat, &min, &max);
+            std::cout << "Image Value Min: " << min << std::endl;
+            std::cout << "Image Value Max: " << max << std::endl;
+
+            const std::string nanosec_id = std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+            std::string filename = "image_" + std::to_string(width) + "x" + std::to_string(height) + "_" + nanosec_id + ".png";
+
+            cv::imwrite(filename, mat);
+
+            return mediapipe::OkStatus();
+        }
+};
+
+REGISTER_CALCULATOR(ImagePrinterCalculator);
+
+absl::Status RunCase0(const std::filesystem::path& model_path, const std::filesystem::path& image_path, int width, int height) {
     assert(std::filesystem::exists(model_path) && std::filesystem::is_regular_file(model_path));
     assert(std::filesystem::exists(image_path) && std::filesystem::is_regular_file(image_path));
 
@@ -122,8 +195,8 @@ absl::Status RunCase0(const std::filesystem::path& model_path, const std::filesy
             output_stream: "IMAGE:square_input_image"
             node_options: {
                 [type.googleapis.com/mediapipe.ImageTransformationCalculatorOptions] {
-                    output_width: 300
-                    output_height: 300
+                    output_width: {{ width }}
+                    output_height: {{ height }}
                     scale_mode: FIT
                 }
             }
@@ -135,11 +208,18 @@ absl::Status RunCase0(const std::filesystem::path& model_path, const std::filesy
             output_stream: "IMAGE:image_used_by_vision_tasks"
         }
 
+        # Image Cheker
+        node {
+            calculator: "ImagePrinterCalculator"
+            input_stream: "IMAGE:image_used_by_vision_tasks"
+        }
+
         # Classify image
         node {
             calculator: "mediapipe.tasks.vision.image_classifier.ImageClassifierGraph"
             input_stream: "IMAGE:image_used_by_vision_tasks"
             output_stream: "CLASSIFICATIONS:classifications"
+            output_stream: "IMAGE:image_out"
             node_options: {
                 [type.googleapis.com/mediapipe.tasks.vision.image_classifier.proto.ImageClassifierGraphOptions] {
                     base_options: {
@@ -154,13 +234,18 @@ absl::Status RunCase0(const std::filesystem::path& model_path, const std::filesy
         # Output
         node {
             calculator: "ClassificationsPrinterCalculator"
+            input_stream: "IMAGE:image_out"
             input_stream: "CLASSIFICATIONS:classifications"
         }
     )pb");
-    std::string calculator_graph_str = env.render(calculator_graph_template, { {"model_path", model_path.string()} });
+    std::string calculator_graph_str = env.render(calculator_graph_template, {
+            {"width", std::to_string(width)},
+            {"height", std::to_string(height)},
+            {"model_path", model_path.string()}
+            });
     mediapipe::CalculatorGraphConfig config = mediapipe::ParseTextProtoOrDie<mediapipe::CalculatorGraphConfig>(calculator_graph_str);
     mediapipe::CalculatorGraph graph;
-    std::cout << "--- Case0 ---" << std::endl;
+    std::cout << "--- Case0 (width=" << width << ", height=" << height << ") ---" << std::endl;
     MP_RETURN_IF_ERROR(graph.Initialize(config));
     MP_RETURN_IF_ERROR(graph.StartRun({ {"image_path", mediapipe::MakePacket<std::filesystem::path>(image_path)} }));
     MP_RETURN_IF_ERROR(graph.WaitUntilDone());
@@ -189,11 +274,18 @@ absl::Status RunCase1(const std::filesystem::path& model_path, const std::filesy
             output_stream: "IMAGE:image"
         }
 
+        # Image Cheker
+        node {
+            calculator: "ImagePrinterCalculator"
+            input_stream: "IMAGE:image"
+        }
+
         # Classify image
         node {
             calculator: "mediapipe.tasks.vision.image_classifier.ImageClassifierGraph"
             input_stream: "IMAGE:image"
             output_stream: "CLASSIFICATIONS:classifications"
+            output_stream: "IMAGE:image_out"
             node_options: {
                 [type.googleapis.com/mediapipe.tasks.vision.image_classifier.proto.ImageClassifierGraphOptions] {
                     base_options: {
@@ -208,6 +300,7 @@ absl::Status RunCase1(const std::filesystem::path& model_path, const std::filesy
         # Output
         node {
             calculator: "ClassificationsPrinterCalculator"
+            input_stream: "IMAGE:image_out"
             input_stream: "CLASSIFICATIONS:classifications"
         }
     )pb");
@@ -241,7 +334,17 @@ int main(int argc, char** argv) {
     }
     const std::filesystem::path image_path = std::filesystem::path(image_path_str);
 
-    absl::Status status = RunCase0(model_path, image_path);
+    absl::Status status;
+
+    status = RunCase0(model_path, image_path, 300, 300);
+    if (!status.ok()) {
+        LOG(ERROR) << "RunCase0 failed: " << status.message();
+    }
+    status = RunCase0(model_path, image_path, 224, 224);
+    if (!status.ok()) {
+        LOG(ERROR) << "RunCase0 failed: " << status.message();
+    }
+    status = RunCase0(model_path, image_path, 646, 646);
     if (!status.ok()) {
         LOG(ERROR) << "RunCase0 failed: " << status.message();
     }

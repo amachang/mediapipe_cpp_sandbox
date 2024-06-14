@@ -1,23 +1,32 @@
+#include <iostream>
+#include <memory>
 #include <string>
+#include <vector>
 #include <filesystem>
+#include <sys/mman.h>
+#include <fcntl.h>
 
-#include "absl/status/status.h"
-#include "absl/flags/flag.h"
+#include "opencv2/opencv.hpp"
+
 #include "absl/flags/parse.h"
-#include "absl/log/absl_log.h"
+#include "absl/flags/flag.h"
+#include "absl/status/status.h"
 #include "absl/log/absl_check.h"
 #include "glog/logging.h"
+
 #include "tensorflow/lite/error_reporter.h"
 #include "tensorflow/lite/stateful_error_reporter.h"
 #include "tensorflow/lite/interpreter.h"
 #include "tensorflow/lite/kernels/register.h"
 #include "tensorflow/lite/model.h"
-#include "mediapipe/framework/port/opencv_highgui_inc.h"
+#include "mediapipe/framework/port/opencv_core_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
-#include "mediapipe/framework/port/opencv_video_inc.h"
+#include "mediapipe/framework/port/opencv_imgcodecs_inc.h"
 
-ABSL_FLAG(std::string, model_path, "", "Path to the TFLite model");
-ABSL_FLAG(std::string, image_path, "", "Path to the image");
+ABSL_FLAG(std::string, input_path, "", "Path to the input file.");
+ABSL_FLAG(std::string, model_path, "", "Path to the model file.");
+ABSL_FLAG(int, width, 224, "Width of the image.");
+ABSL_FLAG(int, height, 224, "Height of the image.");
 
 class ErrorReporter : public tflite::StatefulErrorReporter {
     public:
@@ -169,10 +178,10 @@ absl::Status DumpTfLiteTensorDetails(const TfLiteTensor& tensor) {
     return absl::OkStatus();
 }
 
-absl::Status Interpret(const std::filesystem::path& model_path, const std::filesystem::path& image_path) {
+
+absl::Status Interpret(const std::filesystem::path& model_path, const float* data, int width, int height) {
     assert(tflite::MMAPAllocation::IsSupported());
     assert(std::filesystem::exists(model_path));
-    assert(std::filesystem::exists(image_path));
 
     ErrorReporter error_reporter;
     std::unique_ptr<tflite::Allocation> allocation = std::make_unique<tflite::MMAPAllocation>(model_path.c_str(), &error_reporter);
@@ -318,37 +327,11 @@ absl::Status Interpret(const std::filesystem::path& model_path, const std::files
 
     std::cout << "--- inference ---" << std::endl;
 
-    cv::Mat image = cv::imread(image_path.string());
-    ABSL_CHECK(!image.empty());
 
-    assert(input_size[0] == 1);
-    int rows = input_size[1];
-    int cols = input_size[2];
-    int channels = input_size[3];
-    cv::Size resized_size(cols, rows);
-
-    double width_ratio = static_cast<double>(resized_size.width) / image.cols;
-    double height_ratio = static_cast<double>(resized_size.height) / image.rows;
-    bool width_longer = width_ratio > height_ratio;
-    double scale = width_longer ? height_ratio : width_ratio;
-    cv::Size new_size(static_cast<int>(image.cols * scale), static_cast<int>(image.rows * scale));
-    cv::Mat resized_image(new_size, image.type());
-    cv::resize(image, resized_image, new_size, 0, 0, cv::INTER_LINEAR);
-    cv::Mat padded_resized_image(resized_size, resized_image.type(), cv::Scalar(0));
-    cv::Rect roi((resized_size.width - new_size.width) / 2, (resized_size.height - new_size.height) / 2, new_size.width, new_size.height);
-    resized_image.copyTo(padded_resized_image(roi));
-
-    cv::Mat rgb_image;
-    // cv::imshow("image", padded_resized_image);
-    // cv::waitKey(0);
-    cv::cvtColor(padded_resized_image, rgb_image, cv::COLOR_BGR2RGB);
-
-    // index 1 is height/rows index (y)
-    for (int y = 0; y < rows; y++) {
-        // index 2 is width/cols index (x)
-        for (int x = 0; x < cols; x++) {
-            for (int c = 0; c < channels; c++) {
-                input_tensor.data.f[y * cols * channels + x * channels + c] = static_cast<float>(rgb_image.at<cv::Vec3b>(y, x)[c]);
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            for (int c = 0; c < 3; c++) {
+                input_tensor.data.f[y * width * 3 + x * 3 + c] = static_cast<float>(data[y * width * 3 + x * 3 + c]);
             }
         }
     }
@@ -363,42 +346,91 @@ absl::Status Interpret(const std::filesystem::path& model_path, const std::files
     return absl::OkStatus();
 }
 
-
 int main(int argc, char* argv[]) {
-    if (!tflite::MMAPAllocation::IsSupported()) {
-        LOG(ERROR) << "Memory mapping is not supported on this platform";
-        return EXIT_FAILURE;
-    }
-
     google::InitGoogleLogging(argv[0]);
+    google::InstallFailureSignalHandler();
     absl::ParseCommandLine(argc, argv);
-    std::string model_path_str = absl::GetFlag(FLAGS_model_path);
+
+    const std::string input_path_str = absl::GetFlag(FLAGS_input_path);
+    if (input_path_str.empty()) {
+        LOG(ERROR) << "Please specify image input_path.";
+        return EXIT_FAILURE;
+    }
+    const std::filesystem::path input_path(input_path_str);
+    if (!std::filesystem::exists(input_path)) {
+        LOG(ERROR) << "Input file does not exist: " << input_path;
+        return EXIT_FAILURE;
+    }
+
+    const std::string model_path_str = absl::GetFlag(FLAGS_model_path);
     if (model_path_str.empty()) {
-        LOG(ERROR) << "Please provide a model path, e.g., --model_path=/path/to/model.tflite";
+        LOG(ERROR) << "Please specify model model_path.";
         return EXIT_FAILURE;
     }
-    std::filesystem::path model_path(model_path_str);
+    const std::filesystem::path model_path(model_path_str);
     if (!std::filesystem::exists(model_path)) {
-        LOG(ERROR) << "Model file not found: " << model_path;
+        LOG(ERROR) << "Model file does not exist: " << model_path;
         return EXIT_FAILURE;
     }
 
-    std::string image_path_str = absl::GetFlag(FLAGS_image_path);
-    if (image_path_str.empty()) {
-        LOG(ERROR) << "Please provide an image path, e.g., --image_path=/path/to/image.png";
+    const int width = absl::GetFlag(FLAGS_width);
+    if (width <= 0) {
+        LOG(ERROR) << "Please specify image width (--width).";
         return EXIT_FAILURE;
     }
-    std::filesystem::path image_path(image_path_str);
-    if (!std::filesystem::exists(image_path)) {
-        LOG(ERROR) << "Image file not found: " << image_path;
+    const int height = absl::GetFlag(FLAGS_height);
+    if (height <= 0) {
+        LOG(ERROR) << "Please specify imaege height (--height).";
         return EXIT_FAILURE;
     }
 
-    absl::Status status = Interpret(model_path, image_path);
-    if (!status.ok()) {
-        LOG(ERROR) << "Error: " << status.message();
+    size_t file_size = std::filesystem::file_size(input_path);
+    if (file_size != width * height * 3 * sizeof(float)) {
+        LOG(ERROR) << "Invalid file size (width * height * 3 * sizeof(float) = " << width * height * 3 * sizeof(float) << "): " << file_size;
         return EXIT_FAILURE;
     }
+
+    // mmap
+    int fd = open(input_path.c_str(), O_RDONLY);
+    if (fd == -1) {
+        LOG(ERROR) << "Failed to open file: " << input_path;
+        return EXIT_FAILURE;
+    }
+
+    float* data = (float*)mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (data == MAP_FAILED) {
+        LOG(ERROR) << "Failed to mmap: " << input_path;
+    } else {
+        std::unique_ptr<float[]> normalized_data(new float[width * height * 3]);
+
+        float min = std::numeric_limits<float>::max();
+        float max = std::numeric_limits<float>::min();
+        double sum = 0;
+        double sum_sq = 0;
+        for (int i = 0; i < width * height * 3; i++) {
+            min = std::min(min, data[i]);
+            max = std::max(max, data[i]);
+            sum += data[i];
+            sum_sq += data[i] * data[i];
+            normalized_data[i] = data[i] / 255.0;
+        }
+        double mean = sum / (width * height * 3);
+        double std = std::sqrt(sum_sq / (width * height * 3) - mean * mean);
+        std::cout << "min: " << min << ", max: " << max << ", mean: " << mean << ", std: " << std << std::endl;
+
+        cv::Mat image(height, width, CV_32FC3, normalized_data.get());
+
+        absl::Status status = Interpret(model_path, data, width, height);
+        if (!status.ok()) {
+            LOG(ERROR) << "Failed to interpret: " << status.message();
+        } else {
+            cv::imshow("image", image);
+            cv::waitKey(0);
+        }
+    }
+
+    munmap(data, file_size);
+    close(fd);
 
     return EXIT_SUCCESS;
 }

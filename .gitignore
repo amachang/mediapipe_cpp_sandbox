@@ -1,5 +1,6 @@
 *.tflite
 *.png
+*.bin
 train_workspace*/*
 tried_video_list.txt
 compile_commands.json
